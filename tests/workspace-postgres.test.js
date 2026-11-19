@@ -73,6 +73,102 @@ test('PostgreSQL member conversations, invitations and project collaboration', {
     await erase(id);
     assert.equal(await sql(`SELECT count(*) FROM member_work.profile_photos WHERE user_id='${id}'`),'0');
   });
+  await t.test('private chat files share the message transaction, membership, idempotency and erasure', async () => {
+    const migration = new URL('../supabase/migrations/20261119044206_private_message_attachments.sql', import.meta.url);
+    const file = text => ({name:'notes.txt',mime:'text/plain',size:Buffer.byteLength(text),data:Buffer.from(text).toString('base64')});
+    const [owner,writer,invited]=[randomUUID(),randomUUID(),randomUUID()];
+    for (const id of [owner,writer,invited]) {
+      await sql(`INSERT INTO profiles(id,full_name) VALUES('${id}','Collaborator');
+        INSERT INTO profile_preferences VALUES('${id}','{"directoryPublic":true}')`);
+    }
+    // During a rollout, file-bearing requests must fail on the old RPC without creating a chat or stripping its file.
+    const legacyRoom = await op(owner,'group',{name:'Before migration',targetIds:[writer],clientId:randomUUID()});
+    const legacyText = {...legacyRoom,clientId:randomUUID(),body:'From the previous release'};
+    await op(owner,'send',legacyText);
+    const sentFiles = {...legacyRoom,clientId:randomUUID(),body:'Caption',attachments:[file('test')]};
+    const directFiles = {targetId:writer,clientId:randomUUID(),body:'Caption',attachments:[file('test')]};
+    assert.equal((await op(owner,'sendFiles',sentFiles)).status,400);
+    assert.equal((await op(owner,'directFiles',directFiles)).status,404);
+    assert.equal((await op(owner,'thread',legacyRoom)).messages.length,1);
+    assert.equal((await op(owner,'inbox')).threads.length,1);
+    await execute('psql', [...args, '-f', migration.pathname]);
+    assert.deepEqual(await op(owner,'send',legacyText),legacyRoom,'old clients can retry their pre-migration text receipt');
+    assert.deepEqual(await op(owner,'sendFiles',sentFiles),legacyRoom);
+    assert.equal((await op(owner,'sendFiles',{...sentFiles,body:'Caption',attachments:[],clientId:randomUUID()})).status,400);
+    const migrated=(await op(owner,'thread',legacyRoom)).messages;
+    assert.deepEqual(migrated.map(post=>post.attachments.length),[0,1]);
+    // Exercise the full RPC payload without passing four MiB on the psql command line.
+    const maxId=randomUUID();
+    const maxData=`jsonb_build_object('threadId','${legacyRoom.threadId}','clientId','${maxId}','body','',
+      'attachments',jsonb_build_array(jsonb_build_object('name','max.txt','mime','text/plain',
+        'size',3145728,'data',repeat('YWFh',1048576))))`;
+    assert.deepEqual(JSON.parse(await sql(`SET ROLE service_role; SELECT public.member_workspace('${owner}','sendFiles',${maxData})`)),legacyRoom);
+    const latest=(await op(owner,'thread',legacyRoom)).messages.at(-1);
+    assert.equal(latest.attachments[0].size,3145728);
+    assert.equal(await sql(`SET ROLE service_role; SELECT length(public.member_workspace('${owner}','attachment',
+      '{"attachmentId":"${latest.attachments[0].id}"}') ->> 'data')`),'4194304');
+    assert.equal(await sql(`SELECT octet_length(digest) FROM member_work.receipts WHERE author='${owner}' AND client_id='${maxId}'`),'32');
+    await op(owner,'leave',legacyRoom);
+    for (const role of ['anon','authenticated']) {
+      assert.equal(await sql(`SELECT has_table_privilege('${role}','member_work.message_files','select')`),'f');
+      assert.equal(await sql(`SELECT has_function_privilege('${role}','member_work.store_files(uuid,uuid,jsonb)','execute')`),'f');
+    }
+    const group = await op(owner,'group',{name:'Docs',targetIds:[writer,invited],clientId:randomUUID()});
+    await op(writer,'accept',group);
+    const draft={...group,body:'',attachments:[file('documents')],clientId:randomUUID()};
+    const retries=await Promise.all([op(writer,'sendFiles',draft),op(writer,'send',draft)]);
+    assert.deepEqual(retries,[group,group]);
+    assert.equal((await op(writer,'send',{...draft,attachments:[file('different')]})).status,409);
+    const page = await op(owner,'thread',group);
+    const [post]=page.messages;
+    assert.equal(page.messages.length,1);
+    const [attachment]=post.attachments;
+    assert.deepEqual(Object.keys(attachment).sort(),['id','mime','name','size']);
+    const ref={attachmentId:attachment.id};
+    assert.deepEqual((await op(owner,'inbox')).threads[0].lastMessage,
+      {body:'',hasAttachments:true,authorId:writer,createdAt:post.createdAt});
+    assert.deepEqual(await op(owner,'attachment',ref),{...attachment,data:draft.attachments[0].data});
+    assert.equal((await op(invited,'attachment',ref)).status,404);
+    assert.equal((await op(owner,'exportAttachment',ref)).status,404);
+    assert.deepEqual((await op(owner,'export')).attachments,[]);
+    assert.equal((await op(writer,'export')).attachments[0].downloadUrl,'/api/me/export/attachments/'+attachment.id);
+    const usage=()=>sql(`SELECT bytes FROM member_work.file_usage WHERE author='${writer}'`);
+    assert.equal(await usage(),'9');
+    const invalid={...group,body:'',attachments:[file('valid'),{...file('boo'),data:'!!!!'}],clientId:randomUUID()};
+    assert.equal((await op(writer,'send',invalid)).status,400);
+    assert.equal(await usage(),'9');
+    assert.equal((await op(owner,'thread',group)).messages.length,1);
+    assert.equal((await op(writer,'send',{...invalid,attachments:Array(5).fill(file('x'))})).status,413);
+    // Only one byte of capacity remains. Concurrent writes to different rooms must not both fit.
+    await sql(`UPDATE member_work.file_usage SET bytes=67108863 WHERE author='${writer}'`);
+    const introductions=await Promise.all([owner,invited].map(targetId=>op(writer,'directFiles',{
+      targetId,body:'',attachments:[file('x')],clientId:randomUUID()})));
+    assert.equal(introductions.filter(r=>r.status===413).length,1);
+    const dm=introductions.find(r=>r.threadId);
+    assert.ok(dm);
+    assert.equal(await usage(),'67108864');
+    const rejected=[owner,invited][introductions.findIndex(r=>r.status===413)];
+    assert.equal((await op(rejected,'inbox')).threads.some(r=>r.kind==='direct'),false);
+    const peer=[owner,invited][introductions.findIndex(r=>r.threadId)];
+    const rev=randomUUID();
+    await sql(`UPDATE profiles SET photo_revision='${rev}' WHERE id='${peer}'`);
+    assert.equal((await op(writer,'thread',dm)).thread.photoUrl,'/api/users/'+peer+'/photo?v='+rev);
+    await sql(`UPDATE profile_preferences SET data_consent='{"directoryPublic":false}' WHERE user_id='${peer}'`);
+    assert.equal((await op(writer,'thread',dm)).thread.photoUrl,undefined);
+    const directFile=(await op(peer,'thread',dm)).messages[0].attachments[0];
+    await op(peer,'block',dm);
+    assert.equal((await op(peer,'attachment',{attachmentId:directFile.id})).size,1);
+    await sql(`UPDATE member_work.file_usage SET bytes=10 WHERE author='${writer}'`);
+    await op(writer,'leave',group);
+    assert.equal((await op(writer,'attachment',ref)).status,404);
+    assert.equal((await op(writer,'exportAttachment',ref)).data,file('documents').data);
+    await op(owner,'leave',group);
+    assert.equal(await usage(),'1');
+    await erase(writer);
+    assert.equal((await op(peer,'attachment',{attachmentId:directFile.id})).status,404);
+    assert.equal((await op(peer,'thread',dm)).thread.lastMessage,null);
+    await erase(owner); await erase(invited);
+  });
   const opening = message(b,'Where should we start?');
   const first = await Promise.all([op(a,'direct',opening), op(a,'direct',opening)]);
   assert.deepEqual(first[0],first[1]);

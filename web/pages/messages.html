@@ -10,15 +10,16 @@
   <script src="locale.js?v=20261009a"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="fonts.css?v=20260911b">
-  <link rel="stylesheet" href="messages.css?v=20261118e">
+  <link rel="stylesheet" href="messages.css?v=20261119b">
   <script defer src="i18n.js?v=20261116a"></script>
-  <script defer src="messages-i18n.js?v=20261118d"></script>
-  <script defer src="messages.js?v=20261118e"></script>
+  <script defer src="messages-i18n.js?v=20261119b"></script>
+  <script defer src="messages.js?v=20261119b"></script>
 </head>
 <body>
   <div class="mail-shell">
     <header class="rail-brand">
       <a class="brand" href="dashboard.html"><img src="assets/nodal-wordmark.webp" width="360" height="143" alt="NODAL"></a>
+      <a class="top-dashboard" href="dashboard.html"><span aria-hidden="true">←</span> <span data-msg="dashboard">My dashboard</span></a>
       <a class="mobile-inbox" href="messages.html"><span aria-hidden="true">←</span> <span data-msg="inbox">Inbox</span></a>
       <div class="lang-switch" role="group" data-i18n-aria-label="nav.languageLabel" aria-label="Language">
         <button type="button" class="lang-btn" data-lang="en" aria-label="EN, English">EN</button>
@@ -27,16 +28,16 @@
       </div>
     </header>
     <aside class="inbox" aria-labelledby="inbox-title">
-      <h1 id="inbox-title" data-msg="messages">Messages</h1>
-      <div class="mail-actions">
-        <a id="new-message" href="messages.html?new=message"><span aria-hidden="true" class="compose-icon">✎</span><span data-msg="newMessage">New message</span></a>
-        <a id="new-group" href="messages.html?new=group"><span aria-hidden="true" class="plus-icon">+</span><span data-msg="newGroup">New group</span></a>
-      </div>
+      <header class="inbox-heading">
+        <h1 id="inbox-title" data-msg="messages">Messages</h1>
+        <a id="new-message" class="write-link" href="messages.html?new=message"><span aria-hidden="true" class="compose-icon">✎</span><span data-msg="newMessage">New message</span></a>
+      </header>
+      <div id="inbox-search" class="inbox-search"></div>
       <div id="inbox-list"></div>
     </aside>
     <footer class="rail-foot">
-      <span id="mailbox-owner"></span>
-      <a href="dashboard.html"><span aria-hidden="true">←</span> <span data-msg="dashboard">My dashboard</span></a>
+      <a id="new-group" href="messages.html?new=group"><span aria-hidden="true" class="plus-icon">+</span> <span data-msg="newGroup">New group</span></a>
+      <a id="mailbox-owner" href="profile.html"></a>
     </footer>
     <main id="detail" class="detail">
       <p role="status" data-msg="loading">Loading…</p>

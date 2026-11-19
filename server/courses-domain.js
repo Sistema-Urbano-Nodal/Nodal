@@ -114,8 +114,8 @@ export const ATTACHMENT_EXTENSIONS = { 'image/jpeg': ['.jpg', '.jpeg'], 'image/p
    and path separators become '_', so a name cannot display one extension while ending in another. Trailing dots and
    spaces go too (Windows drops them, which could expose a hidden extension). The download applies it again, so rows
    stored before this rule are served safely as well. */
-export function attachmentFilename(name, mime) {
-  const extensions = ATTACHMENT_EXTENSIONS[mime] ?? ['.bin'];
+export function attachmentFilename(name, mime, extensionMap = ATTACHMENT_EXTENSIONS) {
+  const extensions = extensionMap[mime] ?? ['.bin'];
   const clean = String(name ?? '').replace(/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}/\\]/gu, '_').trim().replace(/[. ]+$/, '') || 'file';
   const lower = clean.toLowerCase();
   if (extensions.some(ext => lower.endsWith(ext) && lower.length > ext.length)) return clean;

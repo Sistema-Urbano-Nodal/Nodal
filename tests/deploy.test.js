@@ -327,7 +327,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'index.html': { 'styles.css': '37', 'i18n.js': '20261116a', 'app.js': '20261116a', 'recs.js': '6', 'script.js': '18', 'hero-network.js': '2', 'node-request.js': '20261116a', 'node-request.css': '20261109a' , ...visit },
     'fundadores.html': { 'styles.css': '37', 'i18n.js': '20261116a', 'nav.js': '20261116a', 'locale.js': '20261009a', 'fundadores.js': '20261029a', 'fundadores.css': '20261029a' , ...visit },
     'opportunities.html': { 'catalog.css': '8', 'i18n.js': '20261116a', 'catalog.js': '8', ...pilot , ...visit },
-    'messages.html': { 'messages.js': '20261118e', 'messages-i18n.js': '20261118d', 'messages.css': '20261118e' },
+    'messages.html': { 'messages.js': '20261119b', 'messages-i18n.js': '20261119b', 'messages.css': '20261119b' },
     'dashboard.html': { 'buc.js': '20261116a', 'i18n-dashboard.js': '20261118e', 'i18n.js': '20261116a', ...festival, 'fiiu-live.js': '20261116a', 'fiiu-hubs.js': '20261116a', 'news-feed.js': '20261001b', 'dashboard.js': '20261118e', 'dashboard.css': '20261118e', 'location-check.js': '20261116a', ...pilot , ...visit },
     'login.html': { 'i18n.js': '20261116a', 'auth.js': '20261116a', 'recovery-i18n.js': '20261022a' , ...visit },
     'reset-password.html': { 'i18n.js': '20261116a', 'recovery-i18n.js': '20261022a', 'password-recovery.js': '20261116a' },

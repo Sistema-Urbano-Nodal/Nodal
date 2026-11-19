@@ -36,7 +36,8 @@ test('introductions wait for a reply, survive retries and persist unread per par
   assert.throws(() => write(alice, 'send', { threadId, body: 'Second introduction' }), { status: 409 });
   assert.throws(() => get(cam, threadId), { status: 404 });
   assert.deepEqual(inbox(bob).threads[0], { id: threadId, kind: 'direct', name: 'Alice',
-    status: 'pending', revision: 1, initiatorId: alice, peerId: alice, unread: true });
+    status: 'pending', revision: 1, initiatorId: alice, peerId: alice, unread: true,
+    lastMessage: { body: introduction.body, authorId: alice, createdAt: get(bob, threadId).messages[0].createdAt, hasAttachments: false } });
   assert.equal(get(bob, threadId).thread.unread, true, 'reading the snapshot leaves the marker intact');
   run(bob, 'read', { threadId, revision: get(bob, threadId).thread.revision });
   assert.equal(inbox(bob).threads[0].unread, false);
@@ -230,4 +231,66 @@ test('chat pages have stable conversation-scoped cursors and an old view cannot 
   const other = write(alice, 'direct', { targetId: cam, body: 'different conversation' });
   const foreign = get(alice, other.threadId).messages[0];
   assert.throws(() => run(bob, 'thread', { threadId, beforeMessageId: foreign.id }), { status: 404 });
+});
+
+test('chat files obey post access, quota, retries, export and cascading deletion', t => {
+  const { db, alice, bob, cam, dee, run, write, get, inbox } = fixture(t);
+  const file = text => ({name:'notes.txt',mime:'text/plain',size:Buffer.byteLength(text),data:Buffer.from(text).toString('base64')});
+  const { threadId } = write(alice, 'group', { name:'Notes', targetIds:[bob,cam] });
+  assert.equal(inbox(alice).threads[0].lastMessage, null);
+  run(bob, 'accept', {threadId});
+  const files = [file('secret bytes'), file('more')];
+  const send = {threadId,body:'',attachments:files,clientId:randomUUID()};
+  assert.throws(() => write(bob,'sendFiles',{threadId,body:'Caption',attachments:[]}),{status:400});
+  run(bob,'sendFiles',send);
+  run(bob,'send',send);
+  assert.throws(() => run(bob,'send',{...send,attachments:[file('edited')]}),{status:409});
+  const [post] = get(alice,threadId).messages;
+  assert.equal(post.attachments.length,2);
+  const descriptor = post.attachments[0], ref = {attachmentId:descriptor.id};
+  assert.deepEqual(Object.keys(descriptor).sort(), ['id','mime','name','size']);
+  assert.deepEqual(inbox(alice).threads[0].lastMessage,{body:'',authorId:bob,createdAt:post.createdAt,hasAttachments:true});
+  assert.deepEqual(run(alice,'attachment',ref), {...descriptor,data:files[0].data});
+  assert.throws(() => run(cam,'attachment',ref),{status:404});
+  assert.throws(() => run(dee,'attachment',ref),{status:404});
+  assert.throws(() => run(alice,'exportAttachment',ref),{status:404});
+  const exported = run(bob,'export').attachments[0];
+  assert.equal(exported.downloadUrl,'/api/me/export/attachments/' + descriptor.id);
+  assert.equal(exported.messageId,post.id);
+  assert.equal(exported.data,undefined);
+  assert.deepEqual(run(alice,'export').attachments,[]);
+  const used = db.prepare('SELECT bytes FROM workspace_file_usage WHERE author_id=?');
+  assert.equal(used.get(bob).bytes,16);
+  assert.throws(() => write(bob,'send',{threadId,body:'',attachments:[...files,...files,...files]}),{status:413});
+  assert.throws(() => write(bob,'send',{threadId,body:'',attachments:[{...files[0],size:3145729}]}),{status:413});
+  assert.throws(() => write(bob,'send',{threadId,body:'',attachments:[files[0],{...files[1],data:'%%%%'}]}),{status:400});
+  assert.equal(used.get(bob).bytes,16);
+  assert.equal(get(alice,threadId).messages.length,1);
+  db.prepare('UPDATE workspace_file_usage SET bytes=67108864 WHERE author_id=?').run(bob);
+  assert.throws(() => write(bob,'direct',{targetId:dee,body:'',attachments:files}),{status:413});
+  assert.equal(inbox(dee).threads.length,0,'an over-quota introduction leaves no thread');
+  db.prepare('UPDATE workspace_file_usage SET bytes=16 WHERE author_id=?').run(bob);
+  run(bob,'leave',{threadId});
+  assert.throws(() => run(bob,'attachment',ref),{status:404});
+  assert.equal(run(bob,'exportAttachment',ref).data,files[0].data);
+  run(alice,'leave',{threadId});
+  assert.throws(() => run(bob,'exportAttachment',ref),{status:404});
+  assert.equal(used.get(bob).bytes,0);
+  const dm = write(bob,'directFiles',{targetId:alice,body:'',attachments:[file('hello')]});
+  const dmRef = {attachmentId:get(alice,dm.threadId).messages[0].attachments[0].id};
+  run(alice,'block',dm);
+  assert.equal(run(alice,'attachment',dmRef).data,file('hello').data);
+  deleteUserById(db,bob);
+  assert.throws(() => run(alice,'attachment',dmRef),{status:404});
+  assert.equal(inbox(alice).threads[0].lastMessage,null);
+});
+
+test('inbox summaries show a listed direct peer’s current photo revision only', t => {
+  const {db,alice,bob,write,inbox} = fixture(t);
+  const revision=randomUUID();
+  db.prepare('UPDATE users SET photo_revision=? WHERE id=?').run(revision,bob);
+  write(alice,'direct',{targetId:bob,body:'Hi!'});
+  assert.equal(inbox(alice).threads[0].photoUrl, `/api/users/${bob}/photo?v=${revision}`);
+  updateUserProfile(db,bob,{partC:{consent:false}});
+  assert.equal(inbox(alice).threads[0].photoUrl,undefined);
 });

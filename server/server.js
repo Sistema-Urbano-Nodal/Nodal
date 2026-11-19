@@ -24,7 +24,7 @@ import { resolveCheckinSecret, checkinClock } from './fiiu-checkin.js';
 import { createRegistrationConfirmation, createPartyNotice } from './fiiu-email.js';
 import { encodeQr as encodeQrCode } from './qr.js';
 import { createSqliteWorkspace } from './workspace-sqlite.js';
-import { createHostedWorkspace, serveWorkspace } from './workspace-api.js';
+import { createHostedWorkspace, serveWorkspace, WORKSPACE_FILE } from './workspace-api.js';
 import { createNewsStore } from './news-repository.js';
 import { createNewsApi } from './news-api.js';
 import { createNodeRequestStore } from './node-requests-repository.js';
@@ -654,7 +654,7 @@ function sameOrigin(req) {
    connection, which a browser reports as a network failure instead of the answer. Nothing past the cap is kept. */
 const tooLarge = () => Object.assign(new Error('request too large'), { status: 413 });
 
-function readJsonBody(req) {
+function readJsonBody(req, max = MAX_BODY) {
   return new Promise((resolve, reject) => {
     if (!/^application\/json/.test(req.headers['content-type'] ?? '')) {
       reject(Object.assign(new Error('expected application/json'), { status: 415 }));
@@ -665,7 +665,7 @@ function readJsonBody(req) {
     req.on('data', (c) => {
       if (over) return;
       size += c.length;
-      if (size > MAX_BODY) { over = true; chunks.length = 0; reject(tooLarge()); return; }
+      if (size > max) { over = true; chunks.length = 0; reject(tooLarge()); return; }
       chunks.push(c);
     });
     req.on('end', () => {
@@ -1470,7 +1470,7 @@ export function createApp({
         || /^\/api\/(?:admin\/)?news(?:\/|$)/.test(pathname)
         || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback(?:\/|$)|admin\/feedback(?:\/|$))/.test(pathname)
         || pathname === '/api/me/photo' || PHOTO_ROUTE.test(pathname)
-        || pathname === '/api/workspace' || ID_ONLY_API.test(pathname) || (req.method === 'DELETE' && pathname === '/api/me');
+        || pathname === '/api/workspace' || WORKSPACE_FILE.test(pathname) || ID_ONLY_API.test(pathname) || (req.method === 'DELETE' && pathname === '/api/me');
       const optionalSession = (req.method === 'GET' || req.method === 'HEAD')
         && (isApiRequest ? OPTIONAL_SESSION_API.test(pathname) : canonical === '/login.html');
       let session = { user: null, cookies: [] };
@@ -1554,9 +1554,9 @@ export function createApp({
       // Before the FIIU API, which would ask the sessionless pulse to sign in; other paths it does not own fall through.
       if(talkApi && await talkApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       if(fiiuApi && await fiiuApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
-      if (pathname === '/api/workspace') {
+      if (pathname === '/api/workspace' || WORKSPACE_FILE.test(pathname)) {
         const limiter = req.method === 'GET' ? workspaceReadLimiter : workspaceWriteLimiter;
-        await serveWorkspace({ req, res, url, actor: sessionUser, store: workspaceStore, send, sameOrigin, readJsonBody,
+        await serveWorkspace({ req, res, url, actor: sessionUser, store: workspaceStore, send, sameOrigin, readJsonBody, downloads,
           allowed: () => throttle(limiter, res, req, sessionUser, 'workspace'),
         });
         return;

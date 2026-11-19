@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { profilePhotoFields } from './profile-policy.js';
 
 const schema = `
   CREATE TABLE IF NOT EXISTS workspace_threads (
@@ -40,6 +41,25 @@ const schema = `
   );
   CREATE INDEX IF NOT EXISTS workspace_messages_thread ON workspace_messages(thread_id, project_id);
   CREATE INDEX IF NOT EXISTS workspace_messages_author ON workspace_messages(author_id);
+  CREATE TABLE IF NOT EXISTS workspace_message_files (
+    id TEXT PRIMARY KEY,
+    message_id TEXT NOT NULL REFERENCES workspace_messages(id) ON DELETE CASCADE,
+    author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 3),
+    name TEXT NOT NULL, mime TEXT NOT NULL,
+    size INTEGER NOT NULL CHECK (size BETWEEN 1 AND 3145728 AND size=length(content)),
+    content BLOB NOT NULL,
+    UNIQUE (message_id,position)
+  );
+  CREATE INDEX IF NOT EXISTS workspace_file_author ON workspace_message_files(author_id);
+  CREATE TABLE IF NOT EXISTS workspace_file_usage (
+    author_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    bytes INTEGER NOT NULL CHECK (bytes BETWEEN 0 AND 67108864)
+  );
+  CREATE TRIGGER IF NOT EXISTS workspace_release_file_bytes AFTER DELETE ON workspace_message_files
+  BEGIN
+    UPDATE workspace_file_usage SET bytes=bytes-OLD.size WHERE author_id=OLD.author_id;
+  END;
   CREATE TABLE IF NOT EXISTS workspace_steps (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES workspace_projects(id) ON DELETE CASCADE,
     author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -80,7 +100,9 @@ const schema = `
 `;
 
 const receiptOperations = new Set(['direct', 'send', 'group', 'invite', 'createProject', 'step', 'update']);
-const readOperations = new Set(['inbox', 'thread', 'export']);
+const readOperations = new Set(['inbox', 'thread', 'export', 'attachment', 'exportAttachment']);
+const MAX_FILE_TOTAL = 3 * 1024 * 1024;
+const AUTHOR_FILE_QUOTA = 64 * 1024 * 1024;
 
 function fail(status, message) {
   throw Object.assign(new Error(message), { status });
@@ -122,7 +144,41 @@ export function createSqliteWorkspace(db) {
       ON CONFLICT(thread_id,user_id) DO NOTHING`).run(threadId, target, actor);
     if (result.changes) notify(threadId, actor);
   }
-  function message(thread, actor, body, projectId = null) {
+  function storeFiles(id, actor, files) {
+    if (!Array.isArray(files)) fail(400, 'invalid attachments');
+    if (files.length > 4) fail(413, 'too many attachments');
+    if (!files.length) return;
+    let total = 0;
+    const prepared = files.map(file => {
+      if (!file || typeof file.name !== 'string' || !file.name.trim() || file.name.length > 160
+          || typeof file.mime !== 'string' || !file.mime || file.mime.length > 128
+          || !Number.isInteger(file.size) || file.size < 1 || typeof file.data !== 'string') fail(400, 'invalid attachment');
+      total += file.size;
+      if (total > MAX_FILE_TOTAL) fail(413, 'attachments too large');
+      if (file.data.length !== 4 * Math.ceil(file.size / 3)) fail(400, 'invalid attachment bytes');
+      const bytes = Buffer.from(file.data, 'base64');
+      if (bytes.length !== file.size || bytes.toString('base64') !== file.data) fail(400, 'invalid attachment bytes');
+      return bytes;
+    });
+    // One atomic reservation per message, even when the author's sends target different rooms.
+    const reserved = query(`INSERT INTO workspace_file_usage(author_id,bytes) VALUES (?,?)
+      ON CONFLICT(author_id) DO UPDATE SET bytes=workspace_file_usage.bytes+excluded.bytes
+      WHERE workspace_file_usage.bytes+excluded.bytes<=?`).run(actor, total, AUTHOR_FILE_QUOTA);
+    if (!reserved.changes) fail(413, 'attachment storage full');
+    const insert = query(`INSERT INTO workspace_message_files(id,message_id,author_id,position,name,mime,size,content)
+      VALUES (?,?,?,?,?,?,?,?)`);
+    files.forEach((file, index) => insert.run(randomUUID(), id, actor, index, file.name, file.mime, file.size, prepared[index]));
+  }
+  function getFile(actor, id, own) {
+    const scope = own ? 'm.author_id=?' : `EXISTS (SELECT 1 FROM workspace_members cm
+      WHERE cm.thread_id=m.thread_id AND cm.user_id=? AND cm.status='active')`;
+    const row = query(`SELECT f.id,f.name,f.mime,f.size,f.content FROM workspace_message_files f
+      JOIN workspace_messages m ON m.id=f.message_id WHERE f.id=? AND ` + scope).get(id, actor);
+    if (!row) fail(404, 'attachment unavailable');
+    const { content, ...file } = row;
+    return { ...file, data: Buffer.from(content).toString('base64') };
+  }
+  function message(thread, actor, body, files) {
     if (thread.kind === 'direct') {
       const peer = actor === thread.peer_low ? thread.peer_high : thread.peer_low;
       if (thread.status === 'blocked' || !query("SELECT 1 FROM users WHERE id=? AND account_status='active'").get(peer)) {
@@ -133,22 +189,32 @@ export function createSqliteWorkspace(db) {
         query("UPDATE workspace_threads SET status='active' WHERE id=?").run(thread.id);
       }
     }
-    appendMessage(thread.id, actor, body, projectId);
+    appendMessage(thread.id, actor, body, null, files);
   }
-  function appendMessage(threadId, actor, body, projectId = null) {
+  function appendMessage(threadId, actor, body = '', projectId = null, files = []) {
+    if (typeof body !== 'string' || (!body.trim() && !files?.length)) fail(400, 'empty message');
+    const id = randomUUID();
     query(`INSERT INTO workspace_messages(id, thread_id, project_id, author_id, body, created_at)
-      VALUES (?,?,?,?,?,?)`).run(randomUUID(), threadId, projectId, actor, body, new Date().toISOString());
+      VALUES (?,?,?,?,?,?)`).run(id, threadId, projectId, actor, body, new Date().toISOString());
+    storeFiles(id, actor, files);
     notify(threadId, actor);
   }
   const summaries = `SELECT t.id,t.kind,t.status,t.revision,t.creator_id AS initiatorId,
-    CASE WHEN t.kind='direct' THEN peer.full_name ELSE t.name END AS name, peer.id AS peerId, m.unread
+    CASE WHEN t.kind='direct' THEN peer.full_name ELSE t.name END AS name, peer.id AS peerId, m.unread,
+    CASE WHEN peer.account_status='active' AND json_type(peer.part_c_json,'$.consent')='true' THEN peer.photo_revision END AS photoRevision,
+    substr(latest.body,1,180) AS preview, latest.author_id AS lastAuthor, latest.created_at AS lastAt,
+    EXISTS (SELECT 1 FROM workspace_message_files f WHERE f.message_id=latest.id) AS hasFiles
     FROM workspace_members m JOIN workspace_threads t ON t.id=m.thread_id
+    LEFT JOIN workspace_messages latest ON latest.rowid=(SELECT p.rowid FROM workspace_messages p
+      WHERE p.thread_id=t.id AND p.project_id IS NULL ORDER BY p.rowid DESC LIMIT 1)
     LEFT JOIN users peer ON peer.id=CASE WHEN m.user_id=t.peer_low THEN t.peer_high ELSE t.peer_low END
     WHERE m.user_id=? AND m.status='active'`;
   function summary(row) {
     const { id, kind, status, revision, unread } = row;
     const result = { id, kind, status, revision, name: row.name || '', unread: Boolean(unread) };
-    if (kind === 'direct') Object.assign(result, { peerId: row.peerId, initiatorId: row.initiatorId });
+    result.lastMessage = row.lastAt ? { body: row.preview, authorId: row.lastAuthor, createdAt: row.lastAt,
+      hasAttachments: Boolean(row.hasFiles) } : null;
+    if (kind === 'direct') Object.assign(result, { peerId: row.peerId, initiatorId: row.initiatorId }, profilePhotoFields(row.peerId, row.photoRevision));
     return result;
   }
   function inbox(actor) {
@@ -176,6 +242,14 @@ export function createSqliteWorkspace(db) {
     }
     const moreMessages = page.length > 50;
     const messages = page.slice(0, 50).reverse();
+    for (const item of messages) item.attachments = [];
+    if (messages.length) {
+      const byId = new Map(messages.map(item => [item.id, item]));
+      const files = query(`SELECT id,message_id AS messageId,name,mime,size FROM workspace_message_files
+        WHERE message_id IN (SELECT value FROM json_each(?)) ORDER BY message_id,position`)
+        .all(JSON.stringify(messages.map(item => item.id)));
+      for (const { messageId, ...file } of files) byId.get(messageId).attachments.push(file);
+    }
     const projects = query('SELECT id,title,goal,link FROM workspace_projects WHERE thread_id=? ORDER BY rowid').all(id);
     if (projects.length) {
       const byId = new Map(projects.map(project => [project.id, Object.assign(project, { steps: [], updates: [] })]));
@@ -200,7 +274,10 @@ export function createSqliteWorkspace(db) {
       .all(actor).map(row => ({ ...row, done: Boolean(row.done) }));
     const updates = query(`SELECT id,project_id AS projectId,body,created_at AS createdAt FROM workspace_messages
       WHERE author_id=? AND project_id IS NOT NULL ORDER BY rowid`).all(actor);
-    return { memberships, messages, groups, projects, links, steps, updates };
+    const attachments = query(`SELECT f.id,f.message_id AS messageId,m.thread_id AS threadId,f.name,f.mime,f.size,
+      '/api/me/export/attachments/' || f.id AS downloadUrl FROM workspace_messages m
+      JOIN workspace_message_files f ON f.message_id=m.id WHERE m.author_id=? ORDER BY m.rowid,f.position`).all(actor);
+    return { memberships, messages, groups, projects, links, steps, updates, attachments };
   }
   function write(actor, op, data) {
     if (op === 'direct') {
@@ -208,7 +285,7 @@ export function createSqliteWorkspace(db) {
       if (actor === targetId) fail(400, 'choose another member');
       const existing = directBetween(actor, targetId);
       if (existing) {
-        message(existing, actor, body);
+        message(existing, actor, body, data.attachments);
         return { threadId: existing.id };
       }
       requireListed(targetId);
@@ -217,7 +294,7 @@ export function createSqliteWorkspace(db) {
         VALUES (?,'direct',?,?,?,'pending',?)`).run(threadId, actor, ...pair(actor, targetId), new Date().toISOString());
       query("INSERT INTO workspace_members(thread_id,user_id,status) VALUES (?,?,'active'),(?,?,'active')")
         .run(threadId, actor, threadId, targetId);
-      appendMessage(threadId, actor, body);
+      appendMessage(threadId, actor, body, null, data.attachments);
       return { threadId };
     }
     if (op === 'group') {
@@ -241,7 +318,7 @@ export function createSqliteWorkspace(db) {
       return { threadId };
     }
     const thread = requireMember(threadId, actor);
-    if (op === 'send') message(thread, actor, data.body);
+    if (op === 'send') message(thread, actor, data.body, data.attachments);
     else if (op === 'read') {
       if (thread.revision === data.revision) {
         query('UPDATE workspace_members SET unread=0 WHERE thread_id=? AND user_id=?').run(threadId, actor);
@@ -293,12 +370,22 @@ export function createSqliteWorkspace(db) {
   }
   function perform(actor, op, data) {
     if (!query("SELECT 1 FROM users WHERE id=? AND account_status='active'").get(actor)) fail(403, 'account unavailable');
+    if (op === 'sendFiles' || op === 'directFiles') {
+      if (!Array.isArray(data.attachments) || !data.attachments.length) fail(400, 'attachments required');
+      // Both wire forms share one receipt for a deliberate send.
+      op = op === 'sendFiles' ? 'send' : 'direct';
+    }
     if (op === 'inbox') return inbox(actor);
     if (op === 'export') return exportOwn(actor);
+    if (op === 'attachment' || op === 'exportAttachment') return getFile(actor, data.attachmentId, op === 'exportAttachment');
     if (op === 'thread') return detail(actor, data.threadId, data.beforeMessageId);
     if (!receiptOperations.has(op)) return write(actor, op, data);
     // Save a digest so receipts can detect a changed retry without retaining duplicate private text.
-    const fingerprint = createHash('sha256').update(JSON.stringify(data, Object.keys(data).sort())).digest('hex');
+    const canonical = JSON.stringify(data, (_key, value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+      return Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]));
+    });
+    const fingerprint = createHash('sha256').update(canonical).digest('hex');
     const receipt = query(`SELECT thread_id AS threadId,project_id AS projectId,fingerprint FROM workspace_receipts
       WHERE actor_id=? AND operation=? AND client_id=?`).get(actor, op, data.clientId);
     if (receipt) {
