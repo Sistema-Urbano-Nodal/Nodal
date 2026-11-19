@@ -144,74 +144,100 @@
     return area;
   }
   function searchPicker(host, addPerson, selectedLabel = () => null) {
-    const search = field(host, 'name', 'search', 160, false);
+    // Direct recipients are links to a draft or an existing thread. Group pickers select in place.
+    const direct = !addPerson;
+    const search = field(host, direct ? 'to' : 'name', 'search', 160, false);
     search.autocomplete = 'off';
-    const results = el('div', 'result-list');
+    if (direct) {
+      search.className = 'recipient-search';
+      const updatePlaceholder = () => { search.placeholder = t('searchByName'); };
+      updatePlaceholder();
+      window.nodalI18n?.onChange(updatePlaceholder);
+    }
+    const results = el('div', direct ? 'result-list recipient-list' : 'result-list');
+    const heading = direct ? tr('h3', 'recipient-list-heading', 'networkPeople') : null;
     const status = el('p', 'meta');
     status.setAttribute('role', 'status');
+    if (heading) { heading.hidden = true; host.append(heading); }
+    status.hidden = true;
     host.append(status, results);
     let timer, controller;
-    search.addEventListener('keydown', event => {
-      if (event.key === 'Enter') event.preventDefault();
-    });
+
+    function showStatus(key, error = false) {
+      status.hidden = !key;
+      status.className = error ? 'error' : 'meta';
+      status.setAttribute('role', error ? 'alert' : 'status');
+      if (key) translate(status, key);
+      else { delete status.dataset.msg; status.textContent = ''; }
+    }
+
+    function personRow(person) {
+      const row = el(direct ? 'a' : 'button', direct ? 'result recipient-option' : 'result');
+      const lines = el('span', 'row-text');
+      lines.append(el('strong', 'thread-name', person.name), personMeta(person));
+      row.append(identity(person.name), lines);
+      if (direct) {
+        row.href = url({ to: person.id });
+        return row;
+      }
+      row.type = 'button';
+      const selected = selectedLabel(person.id);
+      if (selected) { row.disabled = true; row.append(tr('span', 'meta', selected)); }
+      row.addEventListener('click', async event => {
+        row.disabled = true;
+        try {
+          await addPerson(person);
+        } catch (err) {
+          row.disabled = false;
+          showStatus(errorKey(err), true);
+          return;
+        }
+        controller?.abort();
+        search.value = '';
+        results.replaceChildren();
+        showStatus();
+        if (event.detail === 0 && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+          search.focus({ preventScroll: true });
+        }
+      });
+      return row;
+    }
+
+    async function loadPeople(q, signal) {
+      try {
+        // The directory page can include the viewer, so fetch six to show up to five other members.
+        const data = q ? await api('/api/users/search', { q }, signal) : await api('/api/users?limit=6', undefined, signal);
+        if (signal.aborted) return;
+        const matches = data.users.filter(person => person.id !== actor.id);
+        const people = q ? matches : matches.slice(0, 5);
+        showStatus(people.length ? null : q ? 'noMatches' : 'emptyDirectory');
+        if (heading) heading.hidden = Boolean(q) || !people.length;
+        results.replaceChildren(...people.map(personRow));
+      } catch (err) {
+        if (!signal.aborted) showStatus(errorKey(err), true);
+      }
+    }
     function searchNow() {
       clearTimeout(timer);
       controller?.abort();
       results.replaceChildren();
-      status.className = 'meta';
-      status.setAttribute('role', 'status');
+      if (heading) heading.hidden = true;
       const q = search.value.trim();
-      if (q.length < 2) {
-        if (q.length) translate(status, 'shortName');
-        else { delete status.dataset.msg; status.textContent = ''; }
+      if ((q || !direct) && q.length < 2) {
+        showStatus(q ? 'shortName' : null);
         return;
       }
       const current = new AbortController();
       controller = current;
-      translate(status, 'loading');
-      timer = setTimeout(async () => {
-        try {
-          const result = await api('/api/users/search', { q }, current.signal);
-          if (current.signal.aborted) return;
-          const people = result.users || [];
-          delete status.dataset.msg;
-          status.textContent = '';
-          if (!people.length) translate(status, 'noMatches');
-          for (const person of people) {
-            const row = el('button', 'result');
-            row.type = 'button';
-            const lines = el('span', 'row-text');
-            lines.append(el('strong', 'thread-name', person.name), personMeta(person));
-            row.append(identity(person.name), lines);
-            const selected = selectedLabel(person.id);
-            if (selected) {
-              row.disabled = true;
-              row.append(tr('span', 'meta', selected));
-            }
-            row.addEventListener('click', async () => {
-              row.disabled = true;
-              try {
-                await addPerson(person);
-              } catch (err) {
-                row.disabled = false;
-                status.className = 'error';
-                status.setAttribute('role', 'alert');
-                translate(status, errorKey(err));
-                return;
-              }
-              controller?.abort();
-              search.value = '';
-              results.replaceChildren();
-              search.focus();
-            });
-            results.append(row);
-          }
-        } catch (err) {
-          if (err.name !== 'AbortError' && !current.signal.aborted) translate(status, errorKey(err));
-        }
-      }, 220);
+      showStatus('loading');
+      if (q) timer = setTimeout(() => loadPeople(q, current.signal), 220);
+      else loadPeople('', current.signal);
     }
+    search.addEventListener('keydown', event => {
+      if (event.key === 'Enter') event.preventDefault();
+    });
     search.addEventListener('input', searchNow);
+    if (direct) searchNow();
     return search;
   }
   function paintInbox(force = false) {
@@ -220,7 +246,7 @@
     lastInbox = stamp;
     inbox.replaceChildren();
     if (listing.invitations.length) {
-      inbox.append(tr('h3', 'inbox-group', 'invitations'));
+      inbox.append(tr('h2', 'inbox-group', 'invitations'));
       for (const invitation of listing.invitations) {
         const card = el('article', 'invitation');
         const buttons = el('div', 'actions');
@@ -230,8 +256,8 @@
         inbox.append(card);
       }
     }
+    inbox.append(tr('h2', 'inbox-group', 'conversations'));
     if (!listing.threads.length) { inbox.append(tr('p', 'inbox-empty', 'noThreads')); return; }
-    if (listing.invitations.length) inbox.append(tr('h3', 'inbox-group', 'conversations'));
     for (const thread of listing.threads) {
       const a = el('a', 'thread-row'), lines = el('span', 'row-text');
       a.href = url({ thread: thread.id });
@@ -249,21 +275,24 @@
     paintInbox();
   }
   function compose(person) {
-    detail.append(tr('p', 'meta', 'newMessage'), el('h2', '', person.name), personMeta(person));
-    const form = el('form', 'form');
+    const recipient = el('header', 'selected-recipient');
+    const lines = el('div', 'row-text');
+    lines.append(el('h2', '', person.name), personMeta(person));
+    recipient.append(identity(person.name), lines);
+    const form = el('form', 'form message-compose');
     const input = field(form, 'message', 'textarea', 4000);
     form.append(tr('p', 'meta', 'sendingAs', { name: actor.fullName }));
     bindWrite(form, 'send', 'direct', () => {
       const body = input.value.trim();
       return body ? { targetId: person.id, body } : 'emptyText';
     }, result => go({ thread: result.threadId }), true);
-    detail.append(form);
+    detail.append(recipient, form);
   }
   function chooseRecipient() {
-    detail.append(tr('h2', '', 'findPerson'), tr('p', 'muted', 'findHint'));
-    const area = el('div', 'form');
-    searchPicker(area, person => go({ to: person.id }));
-    detail.append(area);
+    const form = el('form', 'form recipient-form');
+    form.addEventListener('submit', event => event.preventDefault());
+    searchPicker(form);
+    detail.append(tr('h2', 'composer-title', 'newMessage'), form);
   }
   function groupForm(preselected) {
     detail.append(tr('h2', '', 'newGroup'));
@@ -354,63 +383,72 @@
     controls.replaceChildren();
     const thread = opened.thread;
     renderedStatus = thread.status;
+    const actions = detail.querySelector('.thread-header-actions');
+    actions?.replaceChildren();
     if (thread.status === 'blocked') { controls.append(tr('p', 'notice', 'blocked')); return; }
     const outgoing = thread.initiatorId === actor.id;
     if (thread.status === 'pending' && outgoing) controls.append(tr('p', 'notice', 'waiting'));
     else {
-      const form = el('form', 'form');
+      const form = el('form', 'form chat-composer');
       if (thread.status === 'pending') form.append(tr('p', 'notice', 'firstReply'));
       const message = field(form, 'message', 'textarea', 4000);
       bindWrite(form, 'send', 'send', () => message.value.trim()
         ? { threadId, body: message.value.trim() } : 'emptyText', () => go({ thread: threadId }), true);
       controls.append(form);
     }
-    if (thread.kind === 'direct') {
-      const actions = el('div', 'actions section');
+    if (actions) {
       if (thread.status === 'active') actions.append(nav('createGroup', { new: 'group', with: thread.peerId }, 'button secondary'));
       const decline = thread.status === 'pending' && !outgoing;
       actions.append(action(decline ? 'decline' : 'block', 'quiet', 'block', { threadId }, () => go({ thread: threadId }), 'blockWarning'));
-      controls.append(actions);
     }
   }
   function groupMembers() {
-    const roster = section('memberList');
-    for (const member of opened.members) {
-      const row = el('div', 'person-row');
-      row.append(el('span', '', member.name || t('accountGone')), tr('span', 'meta', member.status));
-      roster.append(row);
-    }
-    const invites = section('inviteMembers');
-    invites.append(tr('p', 'muted', 'groupNotice'), tr('p', 'meta', 'sendingAs', { name: actor.fullName }));
+    const invites = el('div', 'form');
+    invites.append(tr('p', 'meta', 'sendingAs', { name: actor.fullName }), tr('p', 'muted', 'groupNotice'));
     const inviteKeys = new Map();
     searchPicker(invites, async person => {
       if (!inviteKeys.has(person.id)) inviteKeys.set(person.id, crypto.randomUUID());
       await command('invite', { threadId, targetId: person.id, clientId: inviteKeys.get(person.id) });
       go({ thread: threadId, tab: 'members' });
     }, id => opened.members.some(m => m.id === id) && 'alreadyInvited');
-    detail.append(roster, invites, action('leave', 'secondary', 'leave', { threadId }, () => go({}),
+    const addMembers = disclosure('inviteMembers', invites);
+    addMembers.classList.add('inline-disclosure', 'group-invitations');
+    const roster = el('ul', 'group-roster');
+    for (const member of opened.members) {
+      const row = el('li', 'person-row');
+      row.append(identity(member.name), named('span', 'person-name', member.name, 'accountGone'));
+      if (member.status === 'invited') row.append(tr('span', 'meta person-state', 'invited'));
+      roster.append(row);
+    }
+    detail.append(addMembers, roster, action('leave', 'quiet', 'leave', { threadId }, () => go({}),
       activeMembers().length === 1 ? 'lastLeave' : 'confirmLeave'));
   }
   function projectList() {
-    detail.append(tr('h3', '', 'projects'));
-    const list = el('div');
-    for (const project of opened.projects) {
-      const a = el('a', 'project-row');
-      a.href = url({ thread: threadId, project: project.id });
-      const lines = el('span', 'row-text');
-      lines.append(named('strong', 'thread-name', project.title, 'groupProject'), el('span', 'meta', project.goal));
-      a.append(lines); list.append(a);
-    }
-    if (!opened.projects.length) list.append(tr('p', 'muted', 'noProjects'));
-    const form = el('form', 'form');
+    const form = el('form', 'form new-project-form');
     const title = field(form, 'projectTitle', 'text', 120), goal = field(form, 'goal', 'textarea', 2000);
     bindWrite(form, 'createProject', 'createProject', () => {
       if (!title.value.trim() || !goal.value.trim()) return 'emptyText';
       return { threadId, title: title.value.trim(), goal: goal.value.trim() };
     }, result => go({ thread: threadId, project: result.projectId }), true);
     const create = disclosure('newProject', form);
+    create.classList.add('inline-disclosure', 'new-project');
     create.open = !opened.projects.length;
-    detail.append(list, create);
+    detail.append(create);
+
+    const list = el('div', 'project-list');
+    for (const project of opened.projects) {
+      const a = el('a', 'project-row');
+      a.href = url({ thread: threadId, project: project.id });
+      const lines = el('span', 'row-text project-row-body');
+      lines.append(named('strong', 'thread-name', project.title, 'groupProject'));
+      if (project.goal) lines.append(el('span', 'meta', project.goal));
+      a.append(lines);
+      if (project.steps.length) a.append(tr('span', 'meta project-row-progress', 'stepProgress', {
+        done: project.steps.filter(step => step.done).length, total: project.steps.length
+      }));
+      list.append(a);
+    }
+    if (list.childElementCount) detail.append(list);
   }
   function safeLink(value) {
     try {
@@ -419,15 +457,18 @@
     } catch { return ''; }
   }
   function projectDetails(project) {
-    const backToGroup = nav('projects', { thread: threadId, tab: 'projects' });
+    const header = el('header', 'project-header');
+    const backToGroup = nav('projects', { thread: threadId, tab: 'projects' }, 'back project-breadcrumb');
     translate(backToGroup, opened.thread.name ? 'groupProjects' : 'unnamedGroupProjects', { name: opened.thread.name });
-    detail.append(backToGroup, named('h2', '', project.title, 'groupProject'), el('p', 'prose', project.goal));
+    header.append(backToGroup, named('h2', 'project-title', project.title, 'groupProject'));
+    if (project.goal) header.append(el('p', 'prose project-goal', project.goal));
+
     const ids = { threadId, projectId: project.id };
     const back = () => go({ thread: threadId, project: project.id });
-    const doc = section('document');
+    const doc = el('div', 'project-document');
     const link = safeLink(project.link);
     if (link) {
-      const a = el('a', 'external', link);
+      const a = tr('a', 'external document-link', 'document');
       a.href = link; a.target = '_blank'; a.rel = 'noopener noreferrer';
       doc.append(a);
     }
@@ -438,17 +479,22 @@
       if (value && !safeLink(value)) return 'invalidUrl';
       return { ...ids, link: value };
     }, back);
-    doc.append(disclosure(link ? 'editLink' : 'pin', linkForm));
-    detail.append(doc);
+    const editLink = disclosure(link ? 'editLink' : 'addDocument', linkForm);
+    editLink.classList.add('inline-disclosure', 'document-editor');
+    doc.append(editLink);
+    header.append(doc);
+    detail.append(header);
+
     const tasks = section('steps');
+    tasks.classList.add('project-checklist');
     const members = activeMembers();
-    if (!project.steps.length) tasks.append(tr('p', 'muted', 'noSteps'));
+    const list = el('ul', 'step-list');
     for (const step of project.steps) {
-      const line = el('label', 'step'), check = el('input'), status = el('div');
+      const item = el('li'), line = el('label', 'step'), check = el('input'), status = el('div');
       check.type = 'checkbox'; check.checked = step.done;
-      line.append(check, el('span', '', step.description));
+      line.append(check, el('span', 'step-description', step.description));
       const owner = members.find(m => m.id === step.assigneeId);
-      if (owner) line.append(el('small', 'meta', owner.name));
+      if (owner) line.append(named('small', 'meta step-assignee', owner.name, 'accountGone'));
       check.addEventListener('change', async () => {
         const wanted = check.checked;
         check.disabled = true;
@@ -458,26 +504,42 @@
         } catch (err) { check.checked = !wanted; feedback(status, errorKey(err), true); }
         finally { check.disabled = false; }
       });
-      tasks.append(line, status);
+      item.append(line, status);
+      list.append(item);
     }
-    const newTask = el('form', 'form');
+    if (list.childElementCount) tasks.append(list);
+    const newTask = el('form', 'form step-composer');
     const description = field(newTask, 'description', 'text', 320);
     const assign = field(newTask, 'assigned', 'select', null, false);
     const empty = tr('option', '', 'unassigned'); empty.value = ''; assign.append(empty);
     for (const member of members) {
-      const opt = el('option', '', member.name);
+      const opt = named('option', '', member.name, 'accountGone');
       opt.value = member.id; assign.append(opt);
     }
-    bindWrite(newTask, 'addStep', 'step', () => description.value.trim()
+    bindWrite(newTask, 'add', 'step', () => description.value.trim()
       ? { ...ids, description: description.value.trim(), assigneeId: assign.value || null } : 'emptyText', back, true);
-    tasks.append(disclosure('addStep', newTask));
+    const addStep = disclosure('addStep', newTask);
+    addStep.classList.add('inline-disclosure');
+    tasks.append(addStep);
+
     const updates = section('updates');
-    if (!project.updates.length) updates.append(tr('p', 'muted', 'noUpdates'));
-    for (const update of project.updates) updates.append(messageItem(update));
-    const post = el('form', 'form'), body = field(post, 'updateText', 'textarea', 4000);
+    updates.classList.add('project-notes');
+    const post = el('form', 'form update-composer'), body = field(post, 'updatePrompt', 'textarea', 4000);
     bindWrite(post, 'post', 'update', () => body.value.trim()
       ? { ...ids, body: body.value.trim() } : 'emptyText', back, true);
-    updates.append(post);
+    const addUpdate = disclosure('writeUpdate', post);
+    addUpdate.classList.add('inline-disclosure');
+    updates.append(addUpdate);
+    for (const update of [...project.updates].reverse()) {
+      const note = el('article', 'project-note');
+      const byline = el('header', 'byline note-byline');
+      const time = el('time'), date = new Date(update.createdAt);
+      time.dateTime = update.createdAt;
+      if (!Number.isNaN(date.getTime())) time.textContent = date.toLocaleString(language(), { dateStyle: 'short', timeStyle: 'short' });
+      byline.append(identity(update.authorName), named('b', '', update.authorName, 'accountGone'), time);
+      note.append(byline, el('p', 'prose', update.body));
+      updates.append(note);
+    }
     detail.append(tasks, updates);
   }
   function renderThread() {
@@ -487,10 +549,20 @@
       if (!project) throw Object.assign(new Error('Unknown project'), { status: 404 });
       projectDetails(project); return;
     }
-    detail.append(tr('p', 'meta', thread.kind), named('h2', '', thread.name, thread.kind === 'group' ? 'privateGroup' : 'accountGone'));
+    const header = el('header', 'workspace-thread-header');
+    const title = el('div', 'thread-heading');
+    title.append(named('h2', '', thread.name, thread.kind === 'group' ? 'privateGroup' : 'accountGone'));
     if (thread.kind === 'group') {
-      const tabs = el('nav', 'tabs');
-      for (const [id, label] of [['chat', 'chat'], ['members', 'memberList'], ['projects', 'projects']]) {
+      title.append(tr('p', 'meta', activeMembers().length === 1 ? 'singleGroupMember' : 'groupMemberCount', { count: activeMembers().length }));
+    } else {
+      title.append(tr('p', 'meta', 'direct'));
+    }
+    header.append(identity(thread.name, thread.kind === 'group'), title);
+    if (thread.kind === 'direct') header.append(el('div', 'actions thread-header-actions'));
+    detail.append(header);
+    if (thread.kind === 'group') {
+      const tabs = el('nav', 'tabs group-tabs');
+      for (const [id, label] of [['chat', 'chat'], ['projects', 'projects'], ['members', 'memberList']]) {
         const a = nav(label, { thread: threadId, tab: id }, 'tab');
         if (id === tab) a.setAttribute('aria-current', 'page');
         tabs.append(a);
@@ -560,11 +632,14 @@
     localize();
     const to = params.get('to'), mode = params.get('new');
     document.body.classList.toggle('detail-open', Boolean(threadId || to || mode));
+    if (!threadId && (mode === 'message' || mode === 'group' || to)) {
+      document.getElementById(mode === 'group' ? 'new-group' : 'new-message').setAttribute('aria-current', 'page');
+    }
     try {
       const [me, received] = await Promise.all([api('/api/auth/me'), api('/api/workspace')]);
       actor = me.user; listing = received;
+      document.getElementById('mailbox-owner').textContent = actor.fullName || '';
       paintInbox(); detail.replaceChildren();
-      if ((threadId || to || mode) && !projectId) detail.append(nav('backInbox', {}, 'back mobile-back'));
       if (threadId) {
         opened = await fetchThread();
         renderThread();
@@ -581,7 +656,7 @@
       } else chooseRecipient();
       window.setInterval(poll, 12000);
       document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
-    } catch (err) { unavailable(err); }
+    } catch (err) { document.body.classList.add('detail-open'); unavailable(err); }
   }
   window.nodalI18n?.onChange(localize);
   start();
