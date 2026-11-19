@@ -86,6 +86,10 @@ h3 { font-size: 1.06rem; line-height: 1.4; font-weight: 670; letter-spacing: -.0
 .inbox-empty { padding: 14px 20px; color: var(--muted); font-size: .85rem; }
 .inbox-invitations { padding: 11px 20px; border-bottom: 1px solid var(--line); }
 .inbox-group { color: var(--forest); font-weight: 600; font-size: .8rem; }
+.invitation-detail { display: grid; justify-items: start; gap: 9px; }
+.invitation-detail .actions { margin-top: 10px; }
+.rail-brand [data-workspace-notifications] { margin-inline-start: auto; }
+.rail-brand [data-workspace-notifications] + .lang-switch { margin-inline-start: 0; }
 .invitation { padding: 12px 0 4px; }
 .invitation .actions { margin-top: 6px; }
 .rail-foot { grid-area: footer; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 20px; border-top: 1px solid var(--line); border-inline-end: 1px solid var(--line); background: #fff; }

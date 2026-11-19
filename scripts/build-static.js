@@ -27,6 +27,7 @@ const STATIC_SCRIPTS = [
   'dashboard.js',
   'messages.js',
   'messages-i18n.js',
+  'workspace-notifications.js',
   'globe.js',
   'globe-geo.js',
   'i18n.js',
@@ -51,7 +52,7 @@ const STATIC_SCRIPTS = [
   'admin-nav.js',
   'admin-home.js',
 ];
-const STATIC_STYLES = ['fiiu.css', 'fiiu-talk.css', 'auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'messages.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css', 'admin-home.css'];
+const STATIC_STYLES = ['fiiu.css', 'fiiu-talk.css', 'auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'messages.css', 'workspace-notifications.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css', 'admin-home.css'];
 const STATIC_ASSETS = [
   'latam-map.webp',
   'nodal-community.webp',

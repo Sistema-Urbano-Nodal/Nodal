@@ -3,7 +3,7 @@
 
   const detail = document.getElementById('detail');
   const inbox = document.getElementById('inbox-list');
-  let threadId, projectId, tab, viewVersion = 0;
+  let threadId, projectId, inviteId, tab, viewVersion = 0;
   let actor, listing, opened, timeline, controls, earlier, renderedStatus, pollRunning = false;
   let lastInbox = '', lastMessages = '', inboxRequest = 0;
 
@@ -62,7 +62,13 @@
     if (!response.ok) throw Object.assign(new Error('Request failed'), { status: response.status });
     return response.json();
   }
-  const command = (op, data) => api('/api/workspace', { op, ...data });
+  async function command(op, data) {
+    const result = await api('/api/workspace', { op, ...data });
+    if (['read', 'accept', 'decline', 'block', 'leave'].includes(op)) {
+      document.dispatchEvent(new Event('nodal:workspace-changed'));
+    }
+    return result;
+  }
   const fetchThread = beforeMessageId => api('/api/workspace?' + new URLSearchParams(
     beforeMessageId ? { threadId, beforeMessageId } : { threadId }));
   const go = (args) => location.assign(url(args));
@@ -291,6 +297,24 @@
     link.append(group ? identity(thread.name, true) : personIcon({ id: thread.peerId, name: thread.name, photoUrl: thread.photoUrl }), lines);
     return link;
   }
+  function invitationActions(invitation) {
+    const actions = el('div', 'actions');
+    actions.append(action('accept', 'primary', 'accept', { threadId: invitation.id }, () => navigateConversation({ thread: invitation.id }, true)),
+      action('decline', 'quiet', 'decline', { threadId: invitation.id }, refreshInbox));
+    return actions;
+  }
+  function showInvitation(invitation) {
+    const heading = named('h2', '', invitation?.name, invitation ? 'privateGroup' : 'invitationClosed');
+    const section = el('section', 'invitation-detail');
+    section.append(heading);
+    if (invitation) {
+      section.prepend(tr('p', 'meta', 'groupInvitation'));
+      section.append(tr('p', 'meta', 'invitedBy', { name: invitation.inviterName }), invitationActions(invitation));
+    } else if (listing.threads.some(row => row.id === inviteId)) {
+      section.append(nav('openGroup', { thread: inviteId }, 'button secondary'));
+    }
+    detail.replaceChildren(nav('backInbox', {}, 'back'), section);
+  }
   function paintInbox(force = false) {
     const stamp = JSON.stringify(listing) + threadId;
     if (!force && stamp === lastInbox) return;
@@ -308,10 +332,7 @@
       invites.append(tr('summary', 'inbox-group', 'invitationsCount', { count: listing.invitations.length }));
       for (const invitation of listing.invitations) {
         const card = el('article', 'invitation');
-        const buttons = el('div', 'actions');
-        buttons.append(action('accept', 'primary', 'accept', { threadId: invitation.id }, () => go({ thread: invitation.id })),
-          action('decline', 'quiet', 'decline', { threadId: invitation.id }, refreshInbox));
-        card.append(named('strong', 'thread-name', invitation.name, 'privateGroup'), tr('p', 'meta', 'invitedBy', { name: invitation.inviterName }), buttons);
+        card.append(named('strong', 'thread-name', invitation.name, 'privateGroup'), tr('p', 'meta', 'invitedBy', { name: invitation.inviterName }), invitationActions(invitation));
         invites.append(card);
       }
       inbox.append(invites);
@@ -321,8 +342,13 @@
     const request = ++inboxRequest;
     const result = await api('/api/workspace');
     if (request !== inboxRequest) return;
+    const previous = inviteId && listing.invitations.find(row => row.id === inviteId);
     listing = result;
     paintInbox();
+    if (inviteId) {
+      const current = listing.invitations.find(row => row.id === inviteId);
+      if (JSON.stringify(previous) !== JSON.stringify(current)) showInvitation(current);
+    }
   }
   const chatFileTypes = {
     jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
@@ -741,7 +767,7 @@
     return true;
   }
   async function markRead(thread) {
-    if (!thread.unread || document.hidden || !detail.getClientRects().length) return;
+    if (!thread.unread || tab !== 'chat' || document.hidden || !detail.getClientRects().length) return;
     await command('read', { threadId: thread.id, revision: thread.revision });
     const row = listing.threads.find(item => item.id === thread.id);
     if (row && row.revision === thread.revision) {
@@ -1034,9 +1060,10 @@
     const params = new URLSearchParams(location.search);
     const to = params.get('to'), mode = params.get('new');
     threadId = params.get('thread');
+    inviteId = !threadId && params.get('invite');
     projectId = params.get('project');
     tab = projectId ? 'projects' : params.get('tab') || 'chat';
-    document.body.classList.toggle('detail-open', Boolean(threadId || to || mode));
+    document.body.classList.toggle('detail-open', Boolean(threadId || inviteId || to || mode));
     for (const [id, active] of [['new-message', mode === 'message' || Boolean(to)], ['new-group', mode === 'group']]) {
       const link = document.getElementById(id);
       if (active) link.setAttribute('aria-current', 'page');
@@ -1051,12 +1078,20 @@
       threadId = existing.id;
       history.replaceState(null, '', url({ thread: threadId }));
     }
-    if (!threadId && !to && !mode && window.matchMedia('(min-width: 721px)').matches) {
+    if (!threadId && !inviteId && !to && !mode && window.matchMedia('(min-width: 721px)').matches) {
       threadId = listing.threads[0]?.id;
     }
     paintInbox();
     try {
-      if (threadId) {
+      if (inviteId) {
+        let invitation = listing.invitations.find(row => row.id === inviteId);
+        if (!invitation) {
+          await refreshInbox();
+          if (version !== viewVersion) return;
+          invitation = listing.invitations.find(row => row.id === inviteId);
+        }
+        showInvitation(invitation);
+      } else if (threadId) {
         const result = await fetchThread();
         if (version !== viewVersion) return;
         opened = result; detail.replaceChildren(); renderThread();

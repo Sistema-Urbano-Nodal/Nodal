@@ -23,7 +23,7 @@ class ChatNode extends Node {
   getClientRects() { return [{}]; }
 }
 
-async function openChat(firstContact, lang = 'en') {
+async function openChat(firstContact, lang = 'en', { invite = false } = {}) {
   const body = new ChatNode('body'), ids = new Map();
   for (const id of ['detail', 'inbox-list', 'inbox-search', 'new-message', 'new-group', 'mailbox-owner']) {
     const element = new ChatNode('div');
@@ -34,19 +34,26 @@ async function openChat(firstContact, lang = 'en') {
   const thread = { id: randomUUID(), name: firstContact ? peer.fullName : 'School streets', revision: 0,
     kind: firstContact ? 'direct' : 'group', status: firstContact ? 'pending' : 'active', peerId: peer.id, initiatorId: me.id };
   current.searchParams.set(firstContact ? 'to' : 'thread', firstContact ? peer.id : thread.id);
+  const invitation = { id: randomUUID(), name: 'Station square', inviterName: peer.fullName };
+  let pending = invite;
+  if (invite) current.search = '?invite=' + invitation.id;
   const writes = [], messages = [], fileId = randomUUID();
+  const events = [], openedThreads = [];
   async function fetch(path, options) {
     let data;
     if (path === '/api/auth/me') data = { user: me };
     else if (path === '/api/users/' + peer.id) data = { user: peer };
     else if (path === '/api/workspace' && options.method !== 'POST') {
-      data = { threads: firstContact && !messages.length ? [] : [thread], invitations: [] };
+      data = { threads: firstContact && !messages.length ? [] : [thread], invitations: pending ? [invitation] : [] };
     } else if (path === '/api/workspace?threadId=' + thread.id) {
+      openedThreads.push(thread.id);
       data = { thread, messages, members: [{ id: me.id, status: 'active' }], projects: [], moreMessages: false };
     } else if (path === '/api/workspace' && options.method === 'POST') {
       const request = JSON.parse(options.body);
       writes.push(request);
-      if (writes.length === 1) {
+      if (request.op === 'decline') {
+        pending = false;
+      } else if (writes.length === 1) {
         const attachments = request.attachments.map(({ name, mime, size }) => ({ id: fileId, name, mime, size }));
         messages.push({ id: randomUUID(), authorId: me.id, body: request.body, createdAt: new Date().toISOString(), attachments });
         thread.revision++;
@@ -58,6 +65,7 @@ async function openChat(firstContact, lang = 'en') {
   }
   const document = {
     body, documentElement: { lang }, getElementById: id => ids.get(id), addEventListener() {},
+    dispatchEvent: event => events.push(event.type),
     createElement: tag => new ChatNode(tag), createElementNS: (_, tag) => new ChatNode(tag),
     querySelectorAll: selector => body.querySelectorAll(selector),
   };
@@ -65,14 +73,26 @@ async function openChat(firstContact, lang = 'en') {
     readAsDataURL(file) { this.result = 'data:' + file.type + ';base64,' + file.bytes.toString('base64'); this.onload(); }
   }
   const context = vm.createContext({
-    document, location: current, URL, URLSearchParams, crypto: { randomUUID }, FileReader, clearTimeout, fetch,
+    document, location: current, URL, URLSearchParams, Event, crypto: { randomUUID }, FileReader, clearTimeout, fetch,
     history: { replaceState: (_, title, url) => { current.href = new URL(url, current).href; } },
     window: { addEventListener() {}, setInterval() {}, matchMedia: () => ({ matches: true }) },
   });
   for (const name of ['messages-i18n', 'messages']) vm.runInContext(script(name), context, { filename: name + '.js' });
   await flush();
-  return { detail: ids.get('detail'), writes, current, thread, peer, fileId };
+  return { detail: ids.get('detail'), writes, current, thread, peer, fileId, events, openedThreads, invitation };
 }
+
+test('a notification opens the specific invitation without reading another conversation; declining clears it', async () => {
+  const { detail, invitation, openedThreads, writes, events } = await openChat(false, 'en', { invite: true });
+  assert.equal(detail.querySelector('h2').textContent, invitation.name);
+  assert.deepEqual(openedThreads, []);
+  const decline = detail.querySelectorAll('button').find(b => b.textContent === 'Decline');
+  await decline.listeners.click();
+  assert.deepEqual(writes, [{ op: 'decline', threadId: invitation.id }]);
+  assert.deepEqual(events, ['nodal:workspace-changed']);
+  assert.equal(detail.querySelector('h2').textContent, 'This invitation is no longer pending.');
+  assert.deepEqual(openedThreads, []);
+});
 
 test('the composer displays localized Photo, File and Send actions and opens the corresponding native picker', async () => {
   for (const [lang, labels, names] of [

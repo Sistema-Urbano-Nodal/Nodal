@@ -41,6 +41,8 @@ const CONSOLE=readFileSync(new URL('../web/scripts/i18n-dashboard.js',import.met
 // words; only that key moved, and tests/overview-forms-signup-hint.test.js pins it. The two nonhome hashes were redone once
 // for both changes when they were merged, and again that day when the homepage catalog's last keys (hero.browse,
 // catalog.loadingCases, catalog.casesEmpty, catalog.casesError) left with the loader that read them.
+// On 19 Nov 2026 the account-update section got its own heading and scoped read action.
+// Only d.notif.account, d.notif.clear and d.notif.clearDone changed in the ES/PT nonhome snapshots.
 const HOME_KEYS=[
   "about.eyebrow",
   "about.lead1",
@@ -277,8 +279,8 @@ const SNAPSHOTS={
     "pt": "b9a077e4b2055212490393a2498292f0d20156b6f1d4e34f8d7b063179e71d3b"
   },
   "nonhome": {
-    "es": "96cc68a47b3deb626b6e70799d79372cb86788a73fa8132b1f11a0d6422ee247",
-    "pt": "554b543728647a9e358b32874ce1fe1453c16fad3a9deb68eadd338035cadfd0"
+    "es": "810c24a455bf737c5d5f75c8151bf695ff476d3ec542fca87e9560b390384492",
+    "pt": "8399ef83dc34131448d60d434e24355a429853c4ee8ac05fdcc715696b1824f2"
   }
 };
 
@@ -320,6 +322,10 @@ for(const lang of ['es','pt']){
       const later=key=>profilePhotoKeys.has(key)||['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','d.nav.team','d.nav.messages','p.groupVisibility','d.nav.messagesUnread','d.search.message','d.search.messageTo','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','d.uc.errNameShort','page.community.title','page.knowledge.title','page.resources.title'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc|y\.fund|mem\.fund)\./.test(key);
       const actual=Object.entries(dictionaries[lang]).filter(([key])=>!later(key)).sort(([a],[b])=>a.localeCompare(b,'en'));
       assert.equal(hash(actual),SNAPSHOTS.nonhome[lang],String(page));
+      const accountLabels = ['d.notif.account','d.notif.clear','d.notif.clearDone'].map(key=>api.t(key));
+      assert.deepEqual(accountLabels,lang==='es'
+        ? ['Novedades de la cuenta','Marcar las novedades como leídas','Novedades leídas']
+        : ['Novidades da conta','Marcar as novidades como lidas','Novidades lidas']);
       for (const key of profilePhotoKeys) assert.ok(dictionaries[lang][key],key+' has '+lang+' copy');
       assert.equal(api.t('nav.privacy'),lang==='es'?'Política de privacidad':'Política de privacidade');
       assert.equal(api.t('d.uc.errNameShort'),lang==='es'?'Escribe tu nombre con al menos 2 caracteres.':'Digite seu nome com pelo menos 2 caracteres.');

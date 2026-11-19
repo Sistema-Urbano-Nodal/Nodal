@@ -24,7 +24,7 @@ import { resolveCheckinSecret, checkinClock } from './fiiu-checkin.js';
 import { createRegistrationConfirmation, createPartyNotice } from './fiiu-email.js';
 import { encodeQr as encodeQrCode } from './qr.js';
 import { createSqliteWorkspace } from './workspace-sqlite.js';
-import { createHostedWorkspace, serveWorkspace, WORKSPACE_FILE } from './workspace-api.js';
+import { createHostedWorkspace, isWorkspaceRoute, serveWorkspace } from './workspace-api.js';
 import { createNewsStore } from './news-repository.js';
 import { createNewsApi } from './news-api.js';
 import { createNodeRequestStore } from './node-requests-repository.js';
@@ -77,7 +77,7 @@ const MAX_BODY = 32 * 1024;
 // /api/fiiu/checkin still requires a session.
 const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html', '/dashboard.html', '/messages.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html', '/admin-home.html']);
 const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'messages.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'terminos-fundadores.html', 'fundadores.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html', 'admin-home.html']);
-const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'buc.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'messages.js', 'messages-i18n.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js', 'membership-terms.js', 'fundadores.js', 'node-request.js', 'visit.js', 'admin-nav.js', 'admin-home.js']);
+const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'buc.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'messages.js', 'messages-i18n.js', 'workspace-notifications.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js', 'membership-terms.js', 'fundadores.js', 'node-request.js', 'visit.js', 'admin-nav.js', 'admin-home.js']);
 /* /admin is the short address of the administrators' front door, the metrics home. */
 const ADMIN_ALIASES = new Set(['/admin']);
 /* The check-in screen shows <host>/checkin for phones that cannot scan. Typed by hand it may come in any case, without
@@ -87,7 +87,7 @@ const CHECKIN_ALIASES = new Set(['/checkin', '/fiiu-checkin', '/fiiu-checkin.htm
    projected (fiiu-talk.html?a=, ?q=, &present=1) goes there with its query, in any of the spellings above; so do loose
    spellings of the session page itself, whose address the projector shows for typing. */
 const SESSION_ALIASES = new Set(['/fiiu-talk', '/fiiu-talk.htm', '/fiiu-talk.html', '/fiiu-session', '/fiiu-session.htm', '/fiiu-session.html']);
-const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'messages.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css', 'admin-home.css']);
+const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'messages.css', 'workspace-notifications.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css', 'admin-home.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
 // The FIIU summary email's logo (server/fiiu-email.js), loaded by mail clients from other origins.
@@ -1470,7 +1470,7 @@ export function createApp({
         || /^\/api\/(?:admin\/)?news(?:\/|$)/.test(pathname)
         || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback(?:\/|$)|admin\/feedback(?:\/|$))/.test(pathname)
         || pathname === '/api/me/photo' || PHOTO_ROUTE.test(pathname)
-        || pathname === '/api/workspace' || WORKSPACE_FILE.test(pathname) || ID_ONLY_API.test(pathname) || (req.method === 'DELETE' && pathname === '/api/me');
+        || isWorkspaceRoute(pathname) || ID_ONLY_API.test(pathname) || (req.method === 'DELETE' && pathname === '/api/me');
       const optionalSession = (req.method === 'GET' || req.method === 'HEAD')
         && (isApiRequest ? OPTIONAL_SESSION_API.test(pathname) : canonical === '/login.html');
       let session = { user: null, cookies: [] };
@@ -1554,7 +1554,7 @@ export function createApp({
       // Before the FIIU API, which would ask the sessionless pulse to sign in; other paths it does not own fall through.
       if(talkApi && await talkApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       if(fiiuApi && await fiiuApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
-      if (pathname === '/api/workspace' || WORKSPACE_FILE.test(pathname)) {
+      if (isWorkspaceRoute(pathname)) {
         const limiter = req.method === 'GET' ? workspaceReadLimiter : workspaceWriteLimiter;
         await serveWorkspace({ req, res, url, actor: sessionUser, store: workspaceStore, send, sameOrigin, readJsonBody, downloads,
           allowed: () => throttle(limiter, res, req, sessionUser, 'workspace'),

@@ -323,17 +323,23 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   const pilot = { 'pilot-i18n.js': '20261116a', 'pilot.js': '20261116a', 'courses.css': '20261116a' };
   const visit = { 'visit.js': '20261114b' };
   const festival = { 'fiiu.css': '20261116a', 'fiiu-ui.js': '20261116a' };
+  const memberPages = ['dashboard', 'messages', 'profile', 'payments', 'courses', 'course', 'teaching', 'admin', 'admin-home', 'fiiu-admin', 'fiiu-qr'];
+  for (const name of memberPages) {
+    const html = pages[name + '.html'];
+    assert.equal(html.match(/data-workspace-notifications\b/g)?.length, 1, name);
+    assert.ok(html.includes('workspace-notifications.js?v=20261119d') && html.includes('workspace-notifications.css?v=20261119d'), name);
+  }
   const required = {
     'index.html': { 'styles.css': '37', 'i18n.js': '20261116a', 'app.js': '20261116a', 'recs.js': '6', 'script.js': '18', 'hero-network.js': '2', 'node-request.js': '20261116a', 'node-request.css': '20261109a' , ...visit },
     'fundadores.html': { 'styles.css': '37', 'i18n.js': '20261116a', 'nav.js': '20261116a', 'locale.js': '20261009a', 'fundadores.js': '20261029a', 'fundadores.css': '20261029a' , ...visit },
     'opportunities.html': { 'catalog.css': '8', 'i18n.js': '20261116a', 'catalog.js': '8', ...pilot , ...visit },
-    'messages.html': { 'messages.js': '20261119b', 'messages-i18n.js': '20261119b', 'messages.css': '20261119b' },
-    'dashboard.html': { 'buc.js': '20261116a', 'i18n-dashboard.js': '20261118e', 'i18n.js': '20261116a', ...festival, 'fiiu-live.js': '20261116a', 'fiiu-hubs.js': '20261116a', 'news-feed.js': '20261001b', 'dashboard.js': '20261118e', 'dashboard.css': '20261118e', 'location-check.js': '20261116a', ...pilot , ...visit },
+    'messages.html': { 'messages.js': '20261119c', 'messages-i18n.js': '20261119c', 'messages.css': '20261119c' },
+    'dashboard.html': { 'buc.js': '20261116a', 'i18n-dashboard.js': '20261119c', 'i18n.js': '20261116a', ...festival, 'fiiu-live.js': '20261116a', 'fiiu-hubs.js': '20261116a', 'news-feed.js': '20261001b', 'dashboard.js': '20261119c', 'dashboard.css': '20261119c', 'location-check.js': '20261116a', ...pilot , ...visit },
     'login.html': { 'i18n.js': '20261116a', 'auth.js': '20261116a', 'recovery-i18n.js': '20261022a' , ...visit },
     'reset-password.html': { 'i18n.js': '20261116a', 'recovery-i18n.js': '20261022a', 'password-recovery.js': '20261116a' },
-    'payments.html': { 'i18n-dashboard.js': '20261117a', 'i18n.js': '20261116a', 'payments.js': '20261116a', ...pilot , ...visit },
-    'profile.html': { 'i18n-dashboard.js': '20261118e', 'i18n.js': '20261116a', 'profile.js': '20261118e', 'styles.css': '20261118e', ...pilot , ...visit },
-    'admin.html': { 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n-dashboard.js': '20261117a', 'styles.css': '37', 'admin.css': '20261109a', 'admin.js': '20261116a', 'i18n.js': '20261116a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261116a', 'script.js': '18' , ...visit },
+    'payments.html': { 'i18n-dashboard.js': '20261119c', 'i18n.js': '20261116a', 'payments.js': '20261116a', ...pilot , ...visit },
+    'profile.html': { 'i18n-dashboard.js': '20261119c', 'i18n.js': '20261116a', 'profile.js': '20261118e', 'styles.css': '20261118e', ...pilot , ...visit },
+    'admin.html': { 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n-dashboard.js': '20261119c', 'styles.css': '37', 'admin.css': '20261109a', 'admin.js': '20261116a', 'i18n.js': '20261116a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261116a', 'script.js': '18' , ...visit },
     'admin-home.html': { 'admin-home.css': '20261117c', 'admin-home.js': '20261117c', 'styles.css': '37', 'admin.css': '20261109a', 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n.js': '20261116a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261116a', 'script.js': '18', ...visit },
     'course.html': { 'buc.js': '20261116a', 'i18n.js': '20261116a', 'courses.js': '20261116a', ...pilot , ...visit },
     'courses.html': { 'buc.js': '20261116a', 'i18n.js': '20261116a', 'courses.js': '20261116a', ...pilot , ...visit },
@@ -492,6 +498,13 @@ test('every translation key a script asks for resolves in all three languages', 
   for (const [key, values] of Object.entries(messageRows)) {
     assert.ok(values.length === 3 && values.every(value => typeof value === 'string' && value.trim()), `workspace key ${key}`);
   }
+  const notificationSource = readFileSync(path.join(ROOT, 'web/scripts/workspace-notifications.js'), 'utf8');
+  const notificationDictionary = notificationSource.match(/const words = (\{[\s\S]*?\n  \});/);
+  assert.ok(notificationDictionary, 'notification translations are present');
+  const notificationRows = runInNewContext('(' + notificationDictionary[1] + ')');
+  for (const [key, values] of Object.entries(notificationRows)) {
+    assert.ok(values.length === 3 && values.every(value => typeof value === 'string' && value.trim()), `notification key ${key}`);
+  }
   const messagesPage = readFileSync(path.join(ROOT, 'web/pages/messages.html'), 'utf8');
   for (const match of messagesPage.matchAll(/data-msg="([^"]+)"/g)) assert.ok(messageRows[match[1]], match[1]);
   const invitationContext={window:{},document:{documentElement:{},querySelectorAll:()=>[],querySelector:()=>null},localStorage:{getItem:()=>null}};
@@ -516,6 +529,10 @@ test('every translation key a script asks for resolves in all three languages', 
       const key = m[1];
       if (file === 'messages.js') {
         if (!messageRows[key]) missing.push(`${file}: '${key}' is missing from workspace translations`);
+        continue;
+      }
+      if (file === 'workspace-notifications.js') {
+        if (!notificationRows[key]) missing.push(`${file}: '${key}' is missing from notification translations`);
         continue;
       }
       if(festival){

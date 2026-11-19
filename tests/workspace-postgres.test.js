@@ -169,6 +169,70 @@ test('PostgreSQL member conversations, invitations and project collaboration', {
     assert.equal((await op(peer,'thread',dm)).thread.lastMessage,null);
     await erase(owner); await erase(invited);
   });
+  await t.test('service-only notification feed tracks current incoming events and preserves read races', async () => {
+    const [sender,reader,guest]=[randomUUID(),randomUUID(),randomUUID()];
+    for (const id of [sender,reader,guest]) await sql(`INSERT INTO profiles(id,full_name) VALUES('${id}','Sender');
+      INSERT INTO profile_preferences VALUES('${id}','{"directoryPublic":true}')`);
+    const group = await op(sender,'group',{name:'Old group',targetIds:[reader,guest],clientId:randomUUID()});
+    await op(reader,'accept',group);
+    const send = (author,room,body) => op(author,'send',{...room,body,clientId:randomUUID()});
+    await send(sender,group,'Mixed historical unread');
+    const direct = await op(sender,'direct',message(reader,'Old direct'));
+    const migration = new URL('../supabase/migrations/20261119232657_workspace_notifications.sql',import.meta.url);
+    await execute('psql',[...args,'-f',migration.pathname]);
+    const feed = async id => JSON.parse(await sql(`SET ROLE service_role; SELECT public.member_workspace_notifications('${id}')`));
+    for (const role of ['anon','authenticated']) {
+      assert.equal(await sql(`SELECT has_function_privilege('${role}','public.member_workspace_notifications(uuid)','execute')`),'f');
+      assert.equal(await sql(`SELECT has_table_privilege('${role}','member_work.notifications','select')`),'f');
+    }
+    const legacy = await feed(reader);
+    assert.equal(legacy.total,1);
+    assert.equal(legacy.items[0].threadId,direct.threadId);
+    const invitation = (await feed(guest)).items[0];
+    assert.deepEqual(invitation,{id:invitation.id,type:'invitation',threadId:group.threadId,threadKind:'group',groupName:'Old group',
+      actorName:'Sender',createdAt:null});
+    await op(guest,'decline',group);
+    const invite = {...group,targetId:guest,clientId:randomUUID()};
+    await op(sender,'invite',invite); await op(sender,'invite',invite);
+    const reinvited=(await feed(guest)).items[0];
+    assert.notEqual(reinvited.id,invitation.id);
+    assert.ok(Number.isFinite(Date.parse(reinvited.createdAt)));
+    await send(sender,group,'New group message');
+    assert.deepEqual((await feed(guest)).items,[reinvited]);
+    const seen = await op(reader,'thread',group);
+    const latest = seen.messages.at(-1);
+    const active = (await feed(reader)).items.find(i=>i.threadId===group.threadId);
+    assert.deepEqual(active,{id:latest.id,type:'message',threadId:group.threadId,threadKind:'group',groupName:'Old group',
+      actorName:'Sender',createdAt:latest.createdAt});
+    await send(reader,group,'My own outgoing message');
+    await op(sender,'createProject',{...group,title:'Walk',goal:'Review',clientId:randomUUID()});
+    assert.deepEqual((await feed(reader)).items.find(i=>i.threadId===group.threadId),active);
+    await op(reader,'read',{...group,revision:seen.thread.revision});
+    assert.equal((await feed(reader)).total,2);
+    const beforeIncoming=(await op(reader,'thread',group)).thread.revision;
+    await Promise.all([send(sender,group,'New while open'),op(reader,'read',{...group,revision:beforeIncoming})]);
+    const arrived=(await op(reader,'thread',group)).messages.at(-1).id;
+    assert.equal((await feed(reader)).items.find(i=>i.threadId===group.threadId).id,arrived);
+    await op(reader,'read',{...group,revision:(await op(reader,'thread',group)).thread.revision});
+    await op(sender,'createProject',{...group,title:'Walk again',goal:'Review',clientId:randomUUID()});
+    assert.deepEqual((await feed(reader)).items,legacy.items);
+    await op(reader,'block',direct);
+    assert.deepEqual(await feed(reader),{total:0,items:[]});
+    await op(guest,'accept',group);
+    assert.equal((await feed(guest)).total,0);
+    await send(sender,group,'New activity');
+    await op(guest,'leave',group);
+    assert.equal((await feed(guest)).total,0);
+    await erase(sender);
+    assert.equal((await feed(reader)).total,0);
+    assert.equal((await feed(sender)).status,403);
+    await sql(`SET ROLE service_role; SELECT public.member_workspace('${reader}','group',jsonb_build_object('name','Team','targetIds',
+      jsonb_build_array('${guest}'::text),'clientId',gen_random_uuid())) FROM generate_series(1,22)`);
+    const capped=await feed(guest);
+    assert.equal(capped.total,22);
+    assert.equal(capped.items.length,20);
+    assert.deepEqual(capped.items.map(i=>i.createdAt),capped.items.map(i=>i.createdAt).sort().reverse());
+  });
   const opening = message(b,'Where should we start?');
   const first = await Promise.all([op(a,'direct',opening), op(a,'direct',opening)]);
   assert.deepEqual(first[0],first[1]);

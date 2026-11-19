@@ -49,7 +49,8 @@ test('on phones the bell stays at the right edge and its panel opens inside the 
   const phone = blocks(css(), '@media (max-width: 760px)');
   // The wrapped topbar put the bell at the left, so the right-anchored panel hung about 226px off the screen.
   assert.match(phone, /\.top-actions\s*\{\s*margin-left:\s*auto;?\s*\}/);
-  assert.match(phone, /\.notif-pop\s*\{[^}]*width:\s*min\(320px,\s*calc\(100vw - 2 \* var\(--pad\)\)\)/, 'never wider than the screen less both gutters');
+  const bellCss = read('web', 'styles', 'workspace-notifications.css');
+  assert.match(bellCss, /\.workspace-bell-panel\s*\{[^}]*width:\s*min\(360px,\s*calc\(100vw - 20px\)\)/, 'reserve a gutter on each side of the panel');
 });
 
 /* ---------------- globe touch (finding 31) ---------------- */
@@ -455,7 +456,9 @@ test('every console control is at least 44px on a touch screen, without changing
     assert.ok(touch.includes(selector), `${selector} must reach 44px on touch`);
   }
   assert.match(touch, /min-height:\s*44px/);
-  assert.match(touch, /\.top-ico,\s*\.top-avatar\s*\{\s*width:\s*44px;\s*height:\s*44px;?\s*\}/);
+  assert.match(touch, /\.top-avatar\s*\{\s*width:\s*44px;\s*height:\s*44px;?\s*\}/);
+  const bellTouch = blocks(read('web', 'styles', 'workspace-notifications.css'), '@media (pointer: coarse)');
+  assert.match(bellTouch, /\.workspace-bell-button,[^{]+\.workspace-bell-dismiss\s*\{\s*width:\s*44px;\s*height:\s*44px/);
   assert.match(touch, /#fiiuDashboard :is\(\.f-button, \.f-text-link\)/, 'the festival block links (fiiu.css stops at 40px)');
   assert.match(touch, /#nodalNews :is\(\.f-text-link, \.nodal-news-all\)/);
   assert.match(touch, /\.side-privacy/);

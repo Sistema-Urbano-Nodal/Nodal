@@ -36,6 +36,9 @@ test('members can find the right namesake, reply, invite a team and work on a pr
   const threadPath = id => '/api/workspace?threadId=' + id;
   assert.equal((await call(null, '/messages.html')).status, 302);
   assert.equal((await call(null, '/api/workspace')).status, 401);
+  const alerts = '/api/workspace/notifications';
+  assert.equal((await call(null, alerts)).status, 401);
+  assert.equal((await call(lucas, alerts, {})).status, 405);
   assert.equal((await call(lucas, '/api/workspace', { op: 'export' })).status, 400);
   assert.equal((await call(lucas, '/api/workspace', { op: 'group' }, 'https://elsewhere.example')).status, 403);
   const { users } = await ok(lucas, '/api/users/search', { q: 'Ana' });
@@ -45,6 +48,11 @@ test('members can find the right namesake, reply, invite a team and work on a pr
   const { threadId } = await command(lucas, 'direct', intro);
   assert.deepEqual(await command(lucas, 'direct', intro), { threadId });
   assert.equal((await ok(ana, '/api/workspace')).threads[0].unread, true);
+  const notice = await ok(ana, alerts);
+  assert.equal(notice.total, 1);
+  assert.equal(notice.items[0].actorName, 'Lucas');
+  assert.equal(notice.items[0].threadId, threadId);
+  assert.deepEqual(await ok(namesake, alerts + '?actorId=' + ana.id), { total: 0, items: [] });
   assert.deepEqual((await ok(namesake, '/api/workspace')).threads, []);
   await command(ana, 'send', { threadId, body: 'Yes, Sunday works.', clientId: randomUUID() });
   const exchange = await ok(lucas, threadPath(threadId));
@@ -81,4 +89,6 @@ test('the hosted store passes the session actor in a server-side RPC and preserv
   } } });
   await assert.rejects(store.execute('actor', 'thread', { threadId: 'room' }), { status: 404 });
   assert.deepEqual(called, ['rpc/member_workspace', { method: 'POST', body: { p_actor: 'actor', p_op: 'thread', p_data: { threadId: 'room' } } }]);
+  await assert.rejects(store.execute('actor', 'notifications', {}), { status: 404 });
+  assert.deepEqual(called, ['rpc/member_workspace_notifications', { method: 'POST', body: { p_actor: 'actor' } }]);
 });

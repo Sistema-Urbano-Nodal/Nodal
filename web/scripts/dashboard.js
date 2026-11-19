@@ -1255,14 +1255,7 @@
       uc.topics.querySelectorAll('input').forEach((i) => { i.checked = current.has(i.value); });
       if (typeof userDialog.showModal === 'function' && !userDialog.open) userDialog.showModal();
     };
-    byId('userBtn')?.addEventListener('click', () => {
-      /* the avatar lives inside .top-actions, so the outside-click handler
-         never dismisses the notification popover — without this, popover and
-         dialog end up open at once, bleeding into each other */
-      const pop = byId('notifPop');
-      if (pop) { pop.hidden = true; byId('notifBtn')?.setAttribute('aria-expanded', 'false'); }
-      openUserDialog();
-    });
+    byId('userBtn')?.addEventListener('click', openUserDialog);
     byId('ucCancel')?.addEventListener('click', () => { declinePrompt(); userDialog.close(); });
     // Escape closes a modal dialog through its cancel event, which is the same answer.
     userDialog.addEventListener('cancel', declinePrompt);
@@ -1611,8 +1604,6 @@
       { title: t('d.notif.cohort.t'), sub: t('d.notif.cohort.s') },
     ];
   }
-  const notifBtn = byId('notifBtn');
-  const notifPop = byId('notifPop');
   const notifDot = byId('notifDot');
   const notifList = byId('notifList');
   const notifClear = byId('notifClear');
@@ -1629,29 +1620,18 @@
       notifClear.textContent = t(state.notifRead ? 'd.notif.clearDone' : 'd.notif.clear');
     }
   }
-  if (notifBtn && notifPop) {
-    notifBtn.addEventListener('click', () => {
-      notifPop.hidden = !notifPop.hidden;
-      notifBtn.setAttribute('aria-expanded', String(!notifPop.hidden));
-    });
-    notifClear?.addEventListener('click', () => {
-      if (!U) return;   // before the member is loaded, or when loading failed
-      state.notifRead = true;
-      touchUser();
-      renderNotifs();
-    });
-  }
+  notifClear?.addEventListener('click', () => {
+    if (!U) return;
+    state.notifRead = true;
+    touchUser();
+    renderNotifs();
+  });
   document.addEventListener('click', (e) => {
     if (searchPop && !searchPop.hidden && !e.target.closest('.search')) searchPop.hidden = true;
-    if (notifPop && !notifPop.hidden && !e.target.closest('.top-actions')) {
-      notifPop.hidden = true;
-      notifBtn?.setAttribute('aria-expanded', 'false');
-    }
   });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (searchPop) searchPop.hidden = true;
-    if (notifPop) { notifPop.hidden = true; notifBtn?.setAttribute('aria-expanded', 'false'); }
   });
 
   /* ================= scroll spy ================= */
@@ -1708,13 +1688,10 @@
     badge.setAttribute('aria-label', t('d.nav.messagesUnread', { n: workspaceCount }));
   }
 
-  async function loadWorkspaceCount() {
-    try {
-      const inbox = await api('/api/workspace');
-      workspaceCount = inbox.threads.filter(thread => thread.unread).length + inbox.invitations.length;
-      renderWorkspaceCount();
-    } catch { /* The inbox link stays available when its count is unavailable. */ }
-  }
+  document.addEventListener('nodal:workspace-count', event => {
+    workspaceCount = event.detail.count;
+    renderWorkspaceCount();
+  });
   const saveRetry = byId('saveRetry');
   saveRetry?.addEventListener('click', () => {
     saveRetry.disabled = true;
@@ -1764,7 +1741,6 @@
       const retry = byId('loadRetry');
       if (retry) retry.hidden = true;
       applyAll();
-      if (byId('workspaceUnread')) void loadWorkspaceCount();
       if (!partADone() && !promptDeclined()) openUserDialog();
     } catch (error) {
       // api() handles the login redirect for 401. Any other failure says so and

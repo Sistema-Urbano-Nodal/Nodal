@@ -323,6 +323,8 @@ Apply `supabase/migrations/20261119020652_member_profile_photos.sql` next and re
 
 The chat composer and inbox previews use `supabase/migrations/20261119044206_private_message_attachments.sql`. Apply this file after the photo migration and record version `20261119044206`. Verify that a group member can read an attachment, an invited member cannot read it before joining, and leaving removes access to the shared thread. Files the member uploaded are available through their own account export.
 
+Before releasing the notification bell, apply `supabase/migrations/20261119232657_workspace_notifications.sql` using the same single-file procedure and record version `20261119232657`. Verify that an incoming message and a pending group invitation appear for the recipient, then clear independently when the member reads the chat or responds to the invitation.
+
 ## Admin home and metrics: one migration before `main`
 
 `20261114010000_metrics.sql` holds what the admin home (`/admin-home.html`, read
@@ -703,7 +705,7 @@ npm start
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
 2. Apply every pending Supabase migration (every file in the release sections
-   above, most recently `20261119044206_private_message_attachments.sql` under
+   above, most recently `20261119232657_workspace_notifications.sql` under
    "Private messages and project groups", before pushing `main`) one file
    at a time as described in "SQL Migration Steps" (never `supabase db push`
    against production) and confirm them.

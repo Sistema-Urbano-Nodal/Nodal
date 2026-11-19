@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { profilePhotoFields } from './profile-policy.js';
 
+const invitationId = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||substr(hex(randomblob(2)),2)||
+  '-8'||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`;
+
 const schema = `
   CREATE TABLE IF NOT EXISTS workspace_threads (
     id TEXT PRIMARY KEY,
@@ -41,6 +44,32 @@ const schema = `
   );
   CREATE INDEX IF NOT EXISTS workspace_messages_thread ON workspace_messages(thread_id, project_id);
   CREATE INDEX IF NOT EXISTS workspace_messages_author ON workspace_messages(author_id);
+  CREATE TABLE IF NOT EXISTS workspace_notifications (
+    thread_id TEXT NOT NULL, user_id TEXT NOT NULL, event_id TEXT NOT NULL, created_at TEXT,
+    message_id TEXT REFERENCES workspace_messages(id) ON DELETE CASCADE,
+    PRIMARY KEY (thread_id,user_id),
+    FOREIGN KEY (thread_id,user_id) REFERENCES workspace_members(thread_id,user_id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS workspace_notifications_user ON workspace_notifications(user_id,created_at DESC,event_id DESC);
+  CREATE INDEX IF NOT EXISTS workspace_notifications_message ON workspace_notifications(message_id) WHERE message_id IS NOT NULL;
+  CREATE TRIGGER IF NOT EXISTS workspace_chat_notice AFTER INSERT ON workspace_messages WHEN NEW.project_id IS NULL
+  BEGIN
+    INSERT INTO workspace_notifications(thread_id,user_id,event_id,created_at,message_id)
+      SELECT thread_id,user_id,NEW.id,NEW.created_at,NEW.id FROM workspace_members
+      WHERE thread_id=NEW.thread_id AND status='active' AND user_id<>NEW.author_id
+      ON CONFLICT(thread_id,user_id) DO UPDATE SET event_id=excluded.event_id,
+        created_at=excluded.created_at,message_id=excluded.message_id;
+  END;
+  CREATE TRIGGER IF NOT EXISTS workspace_invite_notice AFTER INSERT ON workspace_members WHEN NEW.status='invited'
+  BEGIN
+    INSERT INTO workspace_notifications(thread_id,user_id,event_id,created_at)
+      VALUES(NEW.thread_id,NEW.user_id,${invitationId},strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+  END;
+  CREATE TRIGGER IF NOT EXISTS workspace_clear_notice AFTER UPDATE OF status,unread ON workspace_members
+  WHEN NEW.status<>OLD.status OR (NEW.status='active' AND NEW.unread=0)
+  BEGIN
+    DELETE FROM workspace_notifications WHERE thread_id=NEW.thread_id AND user_id=NEW.user_id;
+  END;
   CREATE TABLE IF NOT EXISTS workspace_message_files (
     id TEXT PRIMARY KEY,
     message_id TEXT NOT NULL REFERENCES workspace_messages(id) ON DELETE CASCADE,
@@ -100,7 +129,7 @@ const schema = `
 `;
 
 const receiptOperations = new Set(['direct', 'send', 'group', 'invite', 'createProject', 'step', 'update']);
-const readOperations = new Set(['inbox', 'thread', 'export', 'attachment', 'exportAttachment']);
+const readOperations = new Set(['inbox', 'thread', 'export', 'attachment', 'exportAttachment', 'notifications']);
 const MAX_FILE_TOTAL = 3 * 1024 * 1024;
 const AUTHOR_FILE_QUOTA = 64 * 1024 * 1024;
 
@@ -110,7 +139,27 @@ function fail(status, message) {
 
 export function createSqliteWorkspace(db) {
   if (!db.prepare('PRAGMA busy_timeout').get().timeout) db.exec('PRAGMA busy_timeout=5000');
-  db.exec(schema);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const installed = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workspace_notifications'").get();
+    db.exec(schema);
+    if (!installed) {
+      // Older group unread flags also represent projects and membership. Only directs prove an incoming chat.
+      // Historic invitation timestamps were never recorded.
+      db.exec(`INSERT INTO workspace_notifications(thread_id,user_id,event_id)
+        SELECT thread_id,user_id,${invitationId} FROM workspace_members WHERE status='invited';
+        INSERT INTO workspace_notifications(thread_id,user_id,event_id,created_at,message_id)
+        SELECT m.thread_id,m.user_id,p.id,p.created_at,p.id FROM workspace_members m
+        JOIN workspace_threads t ON t.id=m.thread_id JOIN workspace_messages p ON p.rowid=(
+          SELECT q.rowid FROM workspace_messages q WHERE q.thread_id=m.thread_id AND q.project_id IS NULL AND q.author_id<>m.user_id
+          ORDER BY q.rowid DESC LIMIT 1)
+        WHERE m.status='active' AND m.unread=1 AND t.kind='direct' AND t.status<>'blocked'`);
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
   const statements = new Map();
   function query(sql) {
     if (!statements.has(sql)) statements.set(sql, db.prepare(sql));
@@ -223,6 +272,20 @@ export function createSqliteWorkspace(db) {
       JOIN workspace_threads t ON t.id=m.thread_id JOIN users u ON u.id=m.inviter_id
       WHERE m.user_id=? AND m.status='invited' ORDER BY m.rowid DESC`).all(actor);
     return { threads, invitations };
+  }
+  function notifications(actor) {
+    const rows = query(`SELECT n.event_id AS id, CASE WHEN n.message_id IS NULL THEN 'invitation' ELSE 'message' END AS type,
+      t.id AS threadId,t.kind AS threadKind,t.name AS groupName,u.full_name AS actorName,n.created_at AS createdAt,count(*) OVER() AS total
+      FROM workspace_notifications n JOIN workspace_members m ON m.thread_id=n.thread_id AND m.user_id=n.user_id
+      JOIN workspace_threads t ON t.id=n.thread_id LEFT JOIN workspace_messages p ON p.id=n.message_id
+      JOIN users u ON u.id=coalesce(p.author_id,m.inviter_id) AND u.account_status='active'
+      WHERE n.user_id=? AND t.status<>'blocked' AND ((m.status='invited' AND n.message_id IS NULL)
+        OR (m.status='active' AND m.unread=1 AND n.message_id IS NOT NULL))
+      ORDER BY n.created_at DESC,n.event_id DESC LIMIT 20`).all(actor);
+    return { total: rows[0]?.total || 0, items: rows.map(row => {
+      const { id, type, threadId, threadKind, groupName, actorName, createdAt } = row;
+      return { id, type, threadId, threadKind, groupName, actorName, createdAt };
+    }) };
   }
   const contentRows = `SELECT m.id,m.author_id AS authorId,u.full_name AS authorName,m.body,m.created_at AS createdAt
     FROM workspace_messages m JOIN users u ON u.id=m.author_id`;
@@ -376,6 +439,7 @@ export function createSqliteWorkspace(db) {
       op = op === 'sendFiles' ? 'send' : 'direct';
     }
     if (op === 'inbox') return inbox(actor);
+    if (op === 'notifications') return notifications(actor);
     if (op === 'export') return exportOwn(actor);
     if (op === 'attachment' || op === 'exportAttachment') return getFile(actor, data.attachmentId, op === 'exportAttachment');
     if (op === 'thread') return detail(actor, data.threadId, data.beforeMessageId);
