@@ -9,7 +9,7 @@ const execute = promisify(execFile);
 const migration = new URL('../supabase/migrations/20261119013754_member_workspace.sql', import.meta.url);
 const quote = value => "'" + value.replaceAll("'", "''") + "'";
 
-test('PostgreSQL member conversations, invitations and project collaboration', {skip: !databaseUrl, timeout: 120000}, async () => {
+test('PostgreSQL member conversations, invitations and project collaboration', {skip: !databaseUrl, timeout: 120000}, async t => {
   const url = new URL(databaseUrl);
   assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(url.hostname));
   assert.match(url.pathname, /^\/nodal_workspace_test_[a-z0-9_]+$/);
@@ -29,6 +29,7 @@ test('PostgreSQL member conversations, invitations and project collaboration', {
     CREATE TABLE onboarding_responses(user_id uuid PRIMARY KEY, raw_answers jsonb);
     GRANT USAGE ON SCHEMA public TO service_role,anon,authenticated,supabase_auth_admin;
     GRANT SELECT ON profiles,profile_preferences,onboarding_responses TO service_role;
+    GRANT UPDATE ON profiles TO service_role;
     GRANT UPDATE(account_status) ON profiles TO service_role;
     GRANT DELETE,SELECT(id) ON profiles TO supabase_auth_admin;`);
   await execute('psql', [...args, '-f', migration.pathname]);
@@ -47,6 +48,31 @@ test('PostgreSQL member conversations, invitations and project collaboration', {
     SELECT public.member_workspace('${actor}',${quote(name)},${quote(JSON.stringify(data))}::jsonb)`));
   const message = (targetId,body) => ({targetId,body,clientId:randomUUID()});
   const erase = actor => sql(`SET ROLE supabase_auth_admin; DELETE FROM profiles WHERE id='${actor}'`);
+  await t.test('profile photos are service-only, follow current directory consent and erase with the profile', async () => {
+    const migration = new URL('../supabase/migrations/20261119020652_member_profile_photos.sql', import.meta.url);
+    await execute('psql', [...args, '-f', migration.pathname]);
+    for (const role of ['anon','authenticated']) {
+      for (const name of ['read_member_profile_photo(uuid,uuid,uuid)','set_member_profile_photo(uuid,uuid,bytea)']) {
+        assert.equal(await sql(`SELECT has_function_privilege('${role}','public.${name}','execute')`), 'f');
+      }
+    }
+    const id = randomUUID(), rev = randomUUID();
+    await sql(`INSERT INTO profiles(id,full_name) VALUES('${id}','Photo member');
+      INSERT INTO profile_preferences VALUES('${id}','{"directoryPublic":true}')`);
+    const run = statement => sql('SET ROLE service_role; SELECT ' + statement);
+    const photo = `public.read_member_profile_photo('${b}','${id}','${rev}')`;
+    assert.equal(await run(`public.set_member_profile_photo('${id}','${rev}',decode('ffd8ffd9','hex'))`),'t');
+    assert.equal(await run(photo),'/9j/2Q==');
+    assert.equal(await run(`public.read_member_profile_photo('${b}','${id}','${randomUUID()}') IS NULL`),'t');
+    await sql(`UPDATE profile_preferences SET data_consent='{"directoryPublic":false}' WHERE user_id='${id}'`);
+    assert.equal(await run(photo + ' IS NULL'),'t');
+    assert.equal(await run(`public.read_member_profile_photo('${id}','${id}','${rev}')`),'/9j/2Q==');
+    assert.equal(await run(`public.set_member_profile_photo('${id}',NULL,NULL)`),'t');
+    assert.equal(await run(`public.read_member_profile_photo('${id}','${id}',NULL) IS NULL`),'t');
+    await run(`public.set_member_profile_photo('${id}','${rev}',decode('ffd8ffd9','hex'))`);
+    await erase(id);
+    assert.equal(await sql(`SELECT count(*) FROM member_work.profile_photos WHERE user_id='${id}'`),'0');
+  });
   const opening = message(b,'Where should we start?');
   const first = await Promise.all([op(a,'direct',opening), op(a,'direct',opening)]);
   assert.deepEqual(first[0],first[1]);

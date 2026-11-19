@@ -12,15 +12,15 @@
   <script src="locale.js?v=20261009a"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
-  <link rel="stylesheet" href="styles.css?v=37" />
+  <link rel="stylesheet" href="styles.css?v=20261118e" />
   <link rel="stylesheet" href="courses.css?v=20261116a" />
 
-  <script defer src="i18n-dashboard.js?v=20261118a"></script>
+  <script defer src="i18n-dashboard.js?v=20261118e"></script>
   <script defer src="i18n.js?v=20261116a"></script>
   <script defer src="pilot-i18n.js?v=20261116a"></script>
   <script defer src="pilot.js?v=20261116a"></script>
   <script defer src="nav.js?v=20261116a"></script>
-  <script defer src="profile.js?v=20261118a"></script>
+  <script defer src="profile.js?v=20261118e"></script>
   <script defer src="visit.js?v=20261114b"></script>
 </head>
 <body class="profile-page">
@@ -46,8 +46,19 @@
       <div class="wrap">
         <div class="pf-hero-card">
           <span class="pf-coord" id="pfCoord" aria-hidden="true"></span>
-          <div class="pf-avatar">
-            <span class="leader-initial" id="pfInitial">N</span>
+          <div class="pf-portrait">
+            <div class="pf-avatar">
+              <span class="leader-initial" id="pfInitial" aria-hidden="true">N</span>
+              <img id="pfPhoto" alt="" width="140" height="140" hidden>
+            </div>
+            <div class="pf-photo-tools" id="pfPhotoTools" hidden>
+              <input id="pfPhotoFile" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,.heic,.heif" hidden>
+              <button type="button" class="pf-photo-action" id="pfChoosePhoto" data-i18n="p.photoAdd">Add photo</button>
+              <button type="button" class="pf-photo-action pf-photo-secondary" id="pfRemovePhoto" data-i18n="p.photoRemove" hidden>Remove photo</button>
+              <button type="button" class="pf-photo-action" id="pfSavePhoto" data-i18n="p.photoSave" hidden>Save photo</button>
+              <button type="button" class="pf-photo-action pf-photo-secondary" id="pfCancelPhoto" data-i18n="p.photoCancel" hidden>Cancel</button>
+              <p class="pf-photo-status" id="pfPhotoStatus" role="status" aria-live="polite"></p>
+            </div>
           </div>
           <div class="pf-id">
             <p class="pf-kicker" id="pfKicker"></p>

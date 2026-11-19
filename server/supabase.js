@@ -21,6 +21,7 @@ import {
   cleanRequests,
   cleanTopics,
   normalizePartC,
+  profilePhotoFields,
   plainText,
 } from './profile-policy.js';
 
@@ -295,6 +296,7 @@ function toApiUserFromSupabase({ profile, preferences, onboarding }) {
   const rawTopics = asArray(raw.topics);
   return {
     id: profile.id,
+    ...profilePhotoFields(profile.id, profile.photo_revision),
     fullName: profileName(profile),
     name: profileName(profile),
     email: cleanString(profile.email, 320),
@@ -1146,6 +1148,17 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     // Profiles key on the auth user's uuid: any other id cannot exist, and PostgREST would refuse it (22P02).
     async getUserById(id) {
       return courseUserId(id) ? apiUser(id) : null;
+    },
+    async readProfilePhoto(actorId, userId, revision = null) {
+      const encoded = await admin.rest('rpc/read_member_profile_photo', {
+        method: 'POST', body: { p_actor: actorId, p_member: userId, p_revision: revision },
+      });
+      return encoded ? Buffer.from(encoded, 'base64') : null;
+    },
+    async setProfilePhoto(actorId, revision, jpeg) {
+      return admin.rest('rpc/set_member_profile_photo', {
+        method: 'POST', body: { p_actor: actorId, p_revision: revision, p_jpeg: jpeg ? '\\x' + jpeg.toString('hex') : null },
+      });
     },
     async updateUserProfile(id, patch) {
       const current = await apiUser(id);

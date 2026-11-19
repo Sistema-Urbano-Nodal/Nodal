@@ -41,16 +41,136 @@
     return node;
   };
 
-  async function api(path) {
-    const res = await fetch(path);
+  async function api(path, options) {
+    const res = await fetch(path, options);
     if (res.status === 401) {
       location.assign(`/login.html?next=${encodeURIComponent(location.pathname + location.search)}`);
       throw new Error('authentication required');
     }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `api ${res.status}`);
+    if (!res.ok) throw Object.assign(new Error(data.error || `api ${res.status}`), { status: res.status });
     return data;
   }
+
+  let photoDraft = null, photoBusy = false, photoNotice = '', photoError = false;
+  function memberPhotoUrl(value, memberId) {
+    if (typeof value !== 'string') return '';
+    try {
+      const url = new URL(value, location.origin);
+      if (url.origin === location.origin && url.pathname === '/api/users/' + encodeURIComponent(memberId) + '/photo') {
+        return url.pathname + url.search;
+      }
+    } catch { /* Keep the initials when there is no usable member photo. */ }
+    return '';
+  }
+  function renderPhoto(user, isSelf) {
+    const photo = $('pfPhoto'), tools = $('pfPhotoTools');
+    if (!photo || !tools) return;
+    const saved = memberPhotoUrl(user.photoUrl, user.id);
+    const source = isSelf && photoDraft ? photoDraft.preview : saved;
+    if (source !== (photo.getAttribute('src') || '')) {
+      photo.hidden = true;
+      if (source) photo.setAttribute('src', source);
+      else photo.removeAttribute('src');
+    }
+    tools.hidden = !isSelf;
+    if (!isSelf) return;
+    const choose = $('pfChoosePhoto'), remove = $('pfRemovePhoto'), save = $('pfSavePhoto'), cancel = $('pfCancelPhoto');
+    choose.dataset.i18n = saved ? 'p.photoChange' : 'p.photoAdd';
+    choose.textContent = t(choose.dataset.i18n);
+    choose.hidden = Boolean(photoDraft);
+    remove.hidden = !saved || Boolean(photoDraft);
+    save.hidden = cancel.hidden = !photoDraft;
+    for (const control of [choose, remove, save, cancel]) control.disabled = photoBusy;
+    $('pfPhotoStatus').dataset.error = String(photoError);
+    set('pfPhotoStatus', photoNotice ? t(photoNotice) : '');
+  }
+  function photoStatus(key, busy = false, error = false) {
+    photoNotice = key;
+    photoBusy = busy;
+    photoError = error;
+    renderPhoto(currentProfile.user, true);
+  }
+  function dataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+  }
+  async function preparePhoto(file) {
+    const supported = /^image\/(?:jpeg|png|webp|avif|heic|heif)$/i;
+    if (!(supported.test(file.type) || (!file.type && /\.(?:jpe?g|png|webp|avif|heic|heif)$/i.test(file.name)))) {
+      throw new Error('unsupported image');
+    }
+    let image;
+    try {
+      image = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch {
+      // Some phone browsers can display a camera photo but cannot decode it with createImageBitmap.
+      image = new Image();
+      image.src = await dataUrl(file);
+      await image.decode();
+    }
+    try {
+      const crop = Math.min(image.width, image.height);
+      const size = Math.min(512, crop);
+      if (!size) throw new Error('empty image');
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(image, (image.width - crop) / 2, (image.height - crop) / 2, crop, crop, 0, 0, size, size);
+      // Exporting the pixels also discards the original image's camera and location metadata.
+      for (const quality of [0.88, 0.72, 0.5, 0.32]) {
+        const jpeg = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+        if (jpeg && jpeg.type === 'image/jpeg' && jpeg.size <= 128 * 1024) return { jpeg, preview: await dataUrl(jpeg) };
+      }
+      throw new Error('image too large');
+    } finally { image.close?.(); }
+  }
+
+  $('pfPhoto')?.addEventListener('load', () => { $('pfPhoto').hidden = false; });
+  $('pfPhoto')?.addEventListener('error', () => { $('pfPhoto').hidden = true; });
+  $('pfChoosePhoto')?.addEventListener('click', () => {
+    if (currentProfile?.isSelf && !photoBusy) $('pfPhotoFile').click();
+  });
+  $('pfPhotoFile')?.addEventListener('change', async () => {
+    const picker = $('pfPhotoFile'), file = picker.files[0];
+    picker.value = '';
+    if (!currentProfile?.isSelf || photoBusy || !file) return;
+    photoStatus('p.photoPreparing', true);
+    try {
+      photoDraft = await preparePhoto(file);
+      photoStatus('p.photoPreview');
+      $('pfSavePhoto').focus();
+    } catch { photoStatus('p.photoInvalid', false, true); }
+  });
+  $('pfCancelPhoto')?.addEventListener('click', () => {
+    if (!currentProfile?.isSelf || photoBusy) return;
+    photoDraft = null;
+    photoStatus('');
+    $('pfChoosePhoto').focus();
+  });
+  async function writePhoto(remove) {
+    if (!currentProfile?.isSelf || photoBusy || (!remove && !photoDraft)) return;
+    photoStatus(remove ? 'p.photoRemoving' : 'p.photoUploading', true);
+    try {
+      const result = await api('/api/me/photo', remove ? { method: 'DELETE' } : {
+        method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: photoDraft.jpeg
+      });
+      const saved = memberPhotoUrl(result.photoUrl, currentProfile.user.id);
+      if (remove ? result.photoUrl !== null : !saved) throw new Error('unexpected photo response');
+      currentProfile.user.photoUrl = saved;
+      photoDraft = null;
+      photoStatus(remove ? 'p.photoRemoved' : 'p.photoSaved');
+      $('pfChoosePhoto').focus();
+    } catch (err) { photoStatus(err.status === 429 ? 'p.photoWait' : 'p.photoFailed', false, true); }
+  }
+  $('pfSavePhoto')?.addEventListener('click', () => writePhoto(false));
+  $('pfRemovePhoto')?.addEventListener('click', () => writePhoto(true));
 
   function normalize(user) {
     return {
@@ -81,6 +201,7 @@
     document.title = `${user.fullName} · ${t('p.title')}`;
     set('pfName', user.fullName);
     renderFounder(user);
+    renderPhoto(user, isSelf);
     set('pfKicker', t(isSelf ? 'p.kickerSelf' : 'p.kicker'));
     set('pfRole', `${roleLabel(user.title)}${user.city ? ` · ${user.city}` : ''}`);
     const parts = user.fullName.trim().split(/\s+/);
@@ -261,8 +382,9 @@
   const peopleRequest = $('pfConnList') ? fetch('/api/users?limit=5').then((r) => (r.ok ? r.json() : {})).catch(() => ({})) : null;
   profileRequest
     .then((data) => {
-      currentProfile = {user: normalize(data.user), isSelf: data.self !== false};
+      currentProfile = {user: normalize(data.user), isSelf: wanted ? data.self === true : data.self !== false};
       render(currentProfile.user, currentProfile.isSelf);
+      if (currentProfile.isSelf && location.hash === '#pfChoosePhoto') $('pfChoosePhoto')?.focus();
       peopleRequest?.then((data) => {
         networkPeople = Array.isArray(data?.users) ? data.users : [];
         renderConnections(currentProfile.user);

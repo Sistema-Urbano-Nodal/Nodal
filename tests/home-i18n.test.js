@@ -292,6 +292,10 @@ function load(page,nodes=[],{withConsole=false}={}){
   vm.runInContext(SCRIPT.replace('const listeners = new Set();','window.dictionaryForTest = DICT; const listeners = new Set();'),context);
   return{api:context.window.nodalI18n,dictionaries:context.window.dictionaryForTest};
 }
+const profilePhotoKeys = new Set([
+  'p.photoAdd','p.photoChange','p.photoRemove','p.photoSave','p.photoCancel','p.photoPreparing','p.photoPreview',
+  'p.photoUploading','p.photoRemoving','p.photoSaved','p.photoRemoved','p.photoInvalid','p.photoFailed','p.photoWait',
+]);
 for(const lang of ['es','pt']){
   test('original homepage runtime copy matches 6ab93f9 in '+lang,()=>{
     const {api}=load('home');api.apply(lang);
@@ -313,9 +317,10 @@ for(const lang of ['es','pt']){
       // console's two-character name refusal (d.uc.errNameShort) just below and by dashboard-console-ui, and the Founder Membership 2027
       // (y.fund.* on the payments page, mem.fund.* on the landing card) by payments-links-ui, landing-membership and the plan copy
       // test at the end of this file. The Supporter courses lines (mem.p7, y.p6) and the Mercado Pago links page (y.mp.*) they replaced are gone.
-      const later=key=>['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','d.nav.team','d.nav.messages','p.groupVisibility','d.nav.messagesUnread','d.search.message','d.search.messageTo','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','d.uc.errNameShort','page.community.title','page.knowledge.title','page.resources.title'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc|y\.fund|mem\.fund)\./.test(key);
+      const later=key=>profilePhotoKeys.has(key)||['nav.privacy','catalog.retry','catalog.moreError','nav.program','nav.community','nav.learn','nav.fiiu','d.nav.publish','d.nav.team','d.nav.messages','p.groupVisibility','d.nav.messagesUnread','d.search.message','d.search.messageTo','d.uc.deleteSubscription','d.greet.hello','d.greet.loading','d.load.failed','catalog.emptyNothingPublished','catalog.nextFiiu','catalog.nextCourses','d.uc.errNameShort','page.community.title','page.knowledge.title','page.resources.title'].includes(key)||/^(?:ops|news|d\.aria|d\.news|d\.badge\.fiiu|d\.buc|y\.fund|mem\.fund)\./.test(key);
       const actual=Object.entries(dictionaries[lang]).filter(([key])=>!later(key)).sort(([a],[b])=>a.localeCompare(b,'en'));
       assert.equal(hash(actual),SNAPSHOTS.nonhome[lang],String(page));
+      for (const key of profilePhotoKeys) assert.ok(dictionaries[lang][key],key+' has '+lang+' copy');
       assert.equal(api.t('nav.privacy'),lang==='es'?'Política de privacidad':'Política de privacidade');
       assert.equal(api.t('d.uc.errNameShort'),lang==='es'?'Escribe tu nombre con al menos 2 caracteres.':'Digite seu nome com pelo menos 2 caracteres.');
       assert.equal(api.t('nav.opportunities'),lang==='es'?'Trabajo abierto':'Trabalhos abertos');

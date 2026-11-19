@@ -83,6 +83,17 @@
     icon.setAttribute('aria-hidden', 'true');
     return icon;
   }
+  function personIcon(person) {
+    const icon = identity(person.name);
+    if (person.photoUrl?.startsWith('/api/users/' + encodeURIComponent(person.id) + '/photo?v=')) {
+      const photo = el('img');
+      photo.alt = '';
+      photo.addEventListener('error', () => photo.remove(), { once: true });
+      photo.src = person.photoUrl;
+      icon.append(photo);
+    }
+    return icon;
+  }
   function section(key) {
     const s = el('section', 'section');
     s.append(tr('h3', '', key));
@@ -175,7 +186,7 @@
       const row = el(direct ? 'a' : 'button', direct ? 'result recipient-option' : 'result');
       const lines = el('span', 'row-text');
       lines.append(el('strong', 'thread-name', person.name), personMeta(person));
-      row.append(identity(person.name), lines);
+      row.append(personIcon(person), lines);
       if (direct) {
         row.href = url({ to: person.id });
         return row;
@@ -278,7 +289,7 @@
     const recipient = el('header', 'selected-recipient');
     const lines = el('div', 'row-text');
     lines.append(el('h2', '', person.name), personMeta(person));
-    recipient.append(identity(person.name), lines);
+    recipient.append(personIcon(person), lines);
     const form = el('form', 'form message-compose');
     const input = field(form, 'message', 'textarea', 4000);
     form.append(tr('p', 'meta', 'sendingAs', { name: actor.fullName }));
@@ -649,7 +660,7 @@
         if (existing) { location.replace(url({ thread: existing.id })); return; }
         const { user, self } = await api('/api/users/' + encodeURIComponent(to));
         if (self || !user) throw Object.assign(new Error('Unknown member'), { status: 404 });
-        compose({ id: user.id, name: user.fullName, role: user.title, city: user.city });
+        compose({ id: user.id, name: user.fullName, role: user.title, city: user.city, photoUrl: user.photoUrl });
       } else if (mode === 'group') {
         const peer = listing.threads.find(th => th.kind === 'direct' && th.status === 'active' && th.peerId === params.get('with'));
         groupForm(peer && { id: peer.peerId, name: peer.name });

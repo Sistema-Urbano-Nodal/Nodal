@@ -36,7 +36,7 @@ function shortName(name){
 }
 /* The pixel size an image decodes to, from its header: the PNG IHDR, the WebP VP8X canvas or VP8L/VP8 frame, the first
    JPEG frame (SOF0-15 but DHT C4, JPG C8 and DAC CC), reached segment by segment as a decoder does. null without one. */
-function imageSize(bytes,mime){
+export function imageSize(bytes,mime){
  const size=(width,height)=>width>=1&&height>=1?{width,height}:null;
  if(mime==='image/png')return bytes.length>=24&&bytes.toString('ascii',12,16)==='IHDR'?size(bytes.readUInt32BE(16),bytes.readUInt32BE(20)):null;
  if(mime==='image/webp'){

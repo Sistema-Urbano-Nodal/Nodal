@@ -1030,6 +1030,20 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
   background-image: radial-gradient(rgba(255,255,255,.10) 1.5px, transparent 1.7px);
   background-size: 16px 16px;
   outline: 3px solid rgba(89,188,83,.75); outline-offset: 4px; }
+.pf-portrait { flex: none; width: 148px; max-width: 100%; }
+.pf-avatar { margin: 4px; }
+.pf-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.pf-photo-tools { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 0 8px; margin-top: 9px; }
+.pf-portrait [hidden] { display: none; }
+.pf-photo-action { appearance: none; background: none; border: 0; cursor: pointer; min-height: 44px;
+  padding: 3px 5px; color: var(--green-deep); font: 700 13px/1.35 var(--font-body); }
+.pf-photo-action:hover { text-decoration: underline; }
+.pf-photo-action:focus-visible { outline: 2px solid var(--green-deep); outline-offset: 1px; border-radius: 4px; }
+.pf-photo-action:disabled { opacity: .55; cursor: wait; }
+.pf-photo-secondary { color: var(--muted); font-weight: 550; }
+.pf-photo-status { width: 100%; text-align: center; line-height: 1.45; color: var(--ink-2); font-size: 12px; }
+.pf-photo-status:empty { margin: 0; }
+.pf-photo-status[data-error="true"] { color: #932e26; }
 .pf-kicker { font-family: var(--font-mono); font-size: 11px; font-weight: 600;
   letter-spacing: .16em; text-transform: uppercase; color: var(--green-bright); margin-bottom: 10px; }
 .pf-id h1 { font-size: clamp(32px, 4vw, 48px); color: var(--ink); line-height: 1.05; }

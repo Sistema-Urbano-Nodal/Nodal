@@ -121,13 +121,16 @@ test('profile sharing identifies the displayed member even on the current-member
   const h=profileHarness({url});let copied;
   h.context.navigator={clipboard:{writeText:async value=>{copied=value;}}};
   h.run('profile');await flush();
-  await h.document.getElementById('pfBtns').children[1].listeners.click();
+  const share=h.document.getElementById('pfBtns').querySelectorAll('button').find(b=>b.textContent===h.api.t('p.copy'));
+  await share.listeners.click();
   assert.equal(copied,'https://nodal.test/profile.html?id=member');
  }
 });
 test('profile sharing offers the same member URL when clipboard access fails',async()=>{
  const h=profileHarness();h.context.navigator={clipboard:{writeText:async()=>{throw new Error('denied');}}};
- h.run('profile');await flush();const share=h.document.getElementById('pfBtns').children[1];await share.listeners.click();
+ h.run('profile');await flush();
+ const share=h.document.getElementById('pfBtns').querySelectorAll('button').find(b=>b.textContent===h.api.t('p.copy'));
+ await share.listeners.click();
  assert.equal(share.textContent,'https://nodal.test/profile.html?id=member');
 });
 test('expired profile access preserves the requested member and language through sign-in',async()=>{

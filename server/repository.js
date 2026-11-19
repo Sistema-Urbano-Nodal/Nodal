@@ -82,6 +82,28 @@ function createSqliteRepository(db, { ownsDb = false } = {}) {
       const user = getUserByEmail(db, email);
       return user ? { id: user.id, email: user.email.trim().toLowerCase(), name: user.full_name, confirmed: true, active: user.account_status === 'active' } : null;
     },
+    async readProfilePhoto(actorId, userId, revision = null) {
+      const row = db.prepare(`SELECT i.jpeg FROM member_profile_photos i JOIN users u ON u.id=i.user_id
+        WHERE u.id=? AND u.account_status='active'
+        AND EXISTS (SELECT 1 FROM users WHERE id=? AND account_status='active')
+        AND (u.id=? OR json_type(u.part_c_json,'$.consent')='true')
+        AND (? IS NULL OR u.photo_revision=?)`).get(userId, actorId, actorId, revision, revision);
+      return row ? Buffer.from(row.jpeg) : null;
+    },
+    async setProfilePhoto(actorId, revision, jpeg) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const result = db.prepare("UPDATE users SET photo_revision=? WHERE id=? AND account_status='active'").run(revision, actorId);
+        if (result.changes && jpeg) {
+          db.prepare(`INSERT INTO member_profile_photos(user_id,jpeg) VALUES (?,?)
+            ON CONFLICT(user_id) DO UPDATE SET jpeg=excluded.jpeg`).run(actorId, jpeg);
+        } else if (result.changes) {
+          db.prepare('DELETE FROM member_profile_photos WHERE user_id=?').run(actorId);
+        }
+        db.exec('COMMIT');
+        return Boolean(result.changes);
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
+    },
     async updateUserProfile(id, patch) {
       return updateUserProfile(db, id, patch);
     },

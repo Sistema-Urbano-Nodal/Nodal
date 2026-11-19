@@ -36,6 +36,7 @@
     const partC = { ...DEFAULT_PART_C, ...(user.partC || {}) };
     return {
       id: user.id,
+      photoUrl: user.photoUrl || null,
       name: user.fullName || user.name || '',
       role: user.title || user.role || 'Member',
       city: user.city || '',
@@ -263,7 +264,26 @@
     setText('metaTopics', String(U.topics.length));
     setText('metaLevel', U.assessed && maxLevel() > 0 ? levelName(maxLevel()) : t('d.meta.levelNone'));
     const avatar = byId('userBtn');
-    if (avatar) { avatar.textContent = initials(U.name); avatar.title = t('d.uc.titleEdit'); }
+    if (avatar) {
+      const url = U.photoUrl;
+      const previous = avatar.querySelector('img');
+      if (!url || previous?.getAttribute('src') !== url) {
+        avatar.textContent = initials(U.name);
+        if (url?.startsWith('/api/users/' + encodeURIComponent(U.id) + '/photo?v=')) {
+          const photo = el('img');
+          photo.alt = '';
+          photo.addEventListener('error', () => photo.remove(), { once: true });
+          photo.src = url;
+          avatar.append(photo);
+        }
+      }
+      avatar.title = t('d.uc.titleEdit');
+    }
+    const photoLink = byId('ucPhotoLink');
+    if (photoLink) {
+      photoLink.dataset.i18n = U.photoUrl ? 'p.photoChange' : 'p.photoAdd';
+      photoLink.textContent = t(photoLink.dataset.i18n);
+    }
     setText('greetSub', t(U.assessed ? 'd.greet.subAssessed' : 'd.greet.subNew'));
 
     const liChip = byId('userLinkedIn');

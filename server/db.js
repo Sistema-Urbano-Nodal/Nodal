@@ -17,6 +17,7 @@ import { PROFILE_NAME_MAX } from './domain.js';
 import {
   DEFAULT_INDICATORS,
   DEFAULT_PART_C,
+  profilePhotoFields,
   canApplyForMentor,
   cleanIndicators,
   cleanProfileList,
@@ -301,6 +302,19 @@ const MIGRATIONS = [
       if (columns.length && !columns.some((column) => column.name === 'founder_since')) db.exec('ALTER TABLE users ADD COLUMN founder_since TEXT');
     },
   },
+  {
+    version: 11,
+    apply(db) {
+      const columns = db.prepare('PRAGMA table_info(users)').all();
+      if (columns.length && !columns.some(column => column.name === 'photo_revision')) {
+        db.exec('ALTER TABLE users ADD COLUMN photo_revision TEXT');
+      }
+      db.exec(`CREATE TABLE member_profile_photos (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        jpeg BLOB NOT NULL CHECK(length(jpeg) BETWEEN 1 AND 131072)
+      )`);
+    },
+  },
 ];
 
 function normalizeLegacyCatalogDate(value, field) {
@@ -368,6 +382,7 @@ export function toApiUser(row) {
   return {
     id: row.id,
     fullName: row.full_name,
+    ...profilePhotoFields(row.id, row.photo_revision),
     name: row.full_name,
     email: row.email,
     permission: row.role,

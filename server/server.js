@@ -1,5 +1,5 @@
 /* NODAL server: static site + authenticated API.
-   Zero dependencies — run with `node server/server.js` (PORT, DATABASE_PATH, REDIS_URL optional). */
+   Run with `node server/server.js` (PORT, DATABASE_PATH, REDIS_URL optional). */
 
 import http from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
@@ -44,6 +44,8 @@ import {
 } from './payments.js';
 import { parseCookies, validateEmail, validatePassword } from './auth.js';
 import { createRepository } from './repository.js';
+import { MAX_PHOTO_BYTES, normalizeProfilePhoto } from './profile-photo.js';
+import { profilePhotoFields } from './profile-policy.js';
 import { dataBackend, resolveSupabaseEnv } from './supabase.js';
 import { createErrorReporter, routeOf } from './error-report.js';
 import { csv } from './courses-domain.js';
@@ -65,6 +67,8 @@ const envInt = (name, fallback) => {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 };
 const REC_TTL_MS = 5 * 60 * 1000;                 // 5-minute cache, per spec
+const PHOTO_ROUTE = /^\/api\/users\/([^/]+)\/photo$/;
+const PHOTO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ID_RE = /^[a-z0-9-]{1,40}$/;
 const API_INTERACTION_TYPES = new Set(['skip']);
 const MAX_BODY = 32 * 1024;
@@ -677,7 +681,7 @@ function readJsonBody(req) {
   });
 }
 
-function readRawBody(req, { max = 128 * 1024 } = {}) {
+function readRawBody(req, { max = 128 * 1024, binary = false } = {}) {
   return new Promise((resolve, reject) => {
     let size = 0, over = false;
     const chunks = [];
@@ -687,7 +691,11 @@ function readRawBody(req, { max = 128 * 1024 } = {}) {
       if (size > max) { over = true; chunks.length = 0; reject(tooLarge()); return; }
       chunks.push(c);
     });
-    req.on('end', () => { if (!over) resolve(Buffer.concat(chunks).toString('utf8')); });
+    req.on('end', () => {
+      if (over) return;
+      const bytes = Buffer.concat(chunks);
+      resolve(binary ? bytes : bytes.toString('utf8'));
+    });
     req.on('error', reject);
   });
 }
@@ -1461,6 +1469,7 @@ export function createApp({
         || /^\/api\/(?:fiiu|admin\/fiiu)(?:\/|$)/.test(pathname)
         || /^\/api\/(?:admin\/)?news(?:\/|$)/.test(pathname)
         || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback(?:\/|$)|admin\/feedback(?:\/|$))/.test(pathname)
+        || pathname === '/api/me/photo' || PHOTO_ROUTE.test(pathname)
         || pathname === '/api/workspace' || ID_ONLY_API.test(pathname) || (req.method === 'DELETE' && pathname === '/api/me');
       const optionalSession = (req.method === 'GET' || req.method === 'HEAD')
         && (isApiRequest ? OPTIONAL_SESSION_API.test(pathname) : canonical === '/login.html');
@@ -2017,10 +2026,45 @@ export function createApp({
         return;
       }
 
+      if (useDb && pathname === '/api/me/photo' && (req.method === 'PUT' || req.method === 'DELETE')) {
+        if (!requireAuth(res, sessionUser)) return;
+        if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
+        if (!throttle(costlyLimiter, res, req, sessionUser, 'profile-photo-write')) return;
+        let jpeg = null, revision = null;
+        if (req.method === 'PUT') {
+          if ((req.headers['content-type'] || '').split(';')[0].trim().toLowerCase() !== 'image/jpeg') {
+            send(res, 415, { error: 'expected image/jpeg' }); return;
+          }
+          jpeg = normalizeProfilePhoto(await readRawBody(req, { max: MAX_PHOTO_BYTES, binary: true }));
+          revision = randomUUID();
+        }
+        if (!await repository.setProfilePhoto(sessionUser.id, revision, jpeg)) {
+          send(res, 403, { error: 'account unavailable' }); return;
+        }
+        send(res, 200, { photoUrl: profilePhotoFields(sessionUser.id, revision).photoUrl ?? null });
+        return;
+      }
+
+      const photoRoute = PHOTO_ROUTE.exec(pathname);
+      if (useDb && req.method === 'GET' && photoRoute) {
+        if (!requireAuth(res, sessionUser)) return;
+        if (!throttle(readLimiter, res, req, sessionUser, 'profile-photo-read')) return;
+        const member = photoRoute[1], revision = url.searchParams.get('v');
+        const jpeg = PHOTO_ID.test(member) && (revision === null || PHOTO_ID.test(revision))
+          ? await repository.readProfilePhoto(sessionUser.id, member, revision) : null;
+        if (!jpeg) { send(res, 404, { error: 'photo unavailable' }); return; }
+        send(res, 200, jpeg, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, no-store' });
+        return;
+      }
+
       if (useDb && req.method === 'GET' && pathname === '/api/me/export') {
         if (!requireAuth(res, sessionUser)) return;
         if (!throttle(costlyLimiter, res, req, sessionUser, 'export')) return;
         const data=await repository.exportUserData(sessionUser.id);
+        if (data.user?.photoUrl) {
+          const jpeg = await repository.readProfilePhoto(sessionUser.id, sessionUser.id);
+          if (jpeg) data.profilePhoto = { contentType: 'image/jpeg', data: jpeg.toString('base64') };
+        }
         if(courseStore)data.coursePilot=await exportCourseData(courseStore,sessionUser.id);
         if(fiiuStore)data.fiiu=await exportFiiuData(fiiuStore,sessionUser.id);
         if (workspaceStore) data.memberWorkspace = await workspaceStore.execute(sessionUser.id, 'export', {});
@@ -2134,7 +2178,7 @@ export function createApp({
             nextCursor: index + 1 + page.length < rows.length ? page.at(-1).id : null,
             users: page.map((row) => {
               const user = repository.toApiUser(row);
-              return { id: user.id, name: user.fullName, role: user.title, city: user.city, interests: user.interests, linkedin: user.linkedin };
+              return { id: user.id, name: user.fullName, role: user.title, city: user.city, photoUrl: user.photoUrl, interests: user.interests, linkedin: user.linkedin };
             }),
           });
           return;
@@ -2326,7 +2370,7 @@ export function createApp({
             return haystack.includes(q) || String(row.email || '').toLowerCase() === q;
           })
           .slice(0, MEMBER_SEARCH_LIMIT)
-          .map(({ user }) => ({ id: user.id, name: user.fullName, role: user.title, city: user.city }));
+          .map(({ user }) => ({ id: user.id, name: user.fullName, role: user.title, city: user.city, photoUrl: user.photoUrl }));
         send(res, 200, { users });
         return;
       }
@@ -2351,6 +2395,7 @@ export function createApp({
           user: self ? user : {
             id: user.id,
             fullName: user.fullName,
+            photoUrl: user.photoUrl,
             title: user.title,
             city: user.city,
             interests: user.interests,

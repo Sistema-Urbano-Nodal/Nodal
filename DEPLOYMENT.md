@@ -319,6 +319,8 @@ npx --no-install supabase db query --linked -f docs/ops/2026-11-14-metrics-basel
 
 Before releasing the member workspace, apply `supabase/migrations/20261119013754_member_workspace.sql` using the SQL Migration Steps below and record version `20261119013754` in migration history. The migration adds the service-only `member_workspace` function, private group data and account-erasure triggers. The Messages page and account export use this function. Verify the member flow with test accounts on a local database before release.
 
+Apply `supabase/migrations/20261119020652_member_profile_photos.sql` next and record version `20261119020652`. Existing profiles start with a null photo revision. The signed-in photo endpoint uses the new read and write functions, and deleting a profile removes its image. Verify that only the service role can execute these functions and that the Data API can select `profiles.photo_revision` with the service credential.
+
 ## Admin home and metrics: one migration before `main`
 
 `20261114010000_metrics.sql` holds what the admin home (`/admin-home.html`, read
@@ -699,7 +701,7 @@ npm start
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
 2. Apply every pending Supabase migration (every file in the release sections
-   above, most recently `20261119013754_member_workspace.sql` under
+   above, most recently `20261119020652_member_profile_photos.sql` under
    "Private messages and project groups", before pushing `main`) one file
    at a time as described in "SQL Migration Steps" (never `supabase db push`
    against production) and confirm them.

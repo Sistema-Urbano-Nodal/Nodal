@@ -17,17 +17,24 @@ class Node {
  remove(){if(this.parent)this.parent.children=this.parent.children.filter(n=>n!==this);this.parent=null;}
  setAttribute(k,v){this.attributes[k]=String(v);}
  getAttribute(k){return this.attributes[k]??null;}
+ removeAttribute(k){delete this.attributes[k];}
+ focus(){this.focused=true;}
  addEventListener(k,f){this.listeners[k]=f;}
  closest(selector){let n=this;while(n){if(n.matches(selector))return n;n=n.parent;}return null;}
  matches(selector){return selector.startsWith('.')&&this.className.split(' ').includes(selector.slice(1));}
 }
 const all=node=>node.children.flatMap(n=>typeof n==='object'?[n,...all(n)]:[]);
 
-function page({lang='es',me,other,people=[]}={}){
+function page({lang='es',me,other,people=[],photoWrite}={}){
  const body=new Node('body'),ids={};
  const add=(parent,tag,className='',id)=>{const n=new Node(tag,className);if(id){n.id=id;ids[id]=n;}parent.append(n);return n;};
  const hero=add(body,'section','pf-hero'),card=add(hero,'div','pf-hero-card');
  add(card,'span','pf-coord','pfCoord');const avatar=add(card,'div','pf-avatar');add(avatar,'span','leader-initial','pfInitial').textContent='N';
+ add(avatar,'img','','pfPhoto').hidden=true;
+ const tools=add(card,'div','pf-photo-tools','pfPhotoTools');tools.hidden=true;
+ add(tools,'input','','pfPhotoFile');
+ for(const id of ['pfChoosePhoto','pfSavePhoto','pfRemovePhoto','pfCancelPhoto'])add(tools,'button','pf-photo-action',id);
+ add(tools,'p','pf-photo-status','pfPhotoStatus');
  const id=add(card,'div','pf-id');for(const [tag,cls,key] of [['p','pf-kicker','pfKicker'],['h1','','pfName'],['div','pf-founder','pfFounder'],['p','pf-role','pfRole'],['div','tags','pfTags'],['p','pf-meta','pfMeta']])add(id,tag,cls,key);ids.pfFounder.hidden=true;
  const li=add(id,'a','pf-linkedin','pfLinkedin');add(li,'span','','pfLinkedinText');
  const actions=add(card,'div','pf-actions');add(actions,'span','pf-match','pfMatch').textContent='…';add(actions,'div','pf-btns','pfBtns');
@@ -41,7 +48,8 @@ function page({lang='es',me,other,people=[]}={}){
  const context={window:{},document:{title:'',body,documentElement:{dataset:{pilot:'false'}},readyState:'complete',createElement:tag=>new Node(tag),getElementById:key=>all(body).find(n=>n.id===key)||null,querySelector:selector=>all(body).find(n=>n.matches(selector))||null,
   querySelectorAll:selector=>all(body).filter(n=>selector==='[data-pilot-text]'?n.dataset.pilotText:selector==='[data-pilot-dynamic]'?n.dataset.pilotDynamic:false)},
   URL,URLSearchParams,setTimeout,location:{origin:'https://nodal.test',pathname:'/profile.html',search:other?'?id='+other:'',assign(){}},navigator:{clipboard:{writeText:async()=>{}}},
-  fetch:async path=>{
+  fetch:async (path,options)=>{
+   if(path==='/api/me/photo'&&photoWrite)return photoWrite(options);
    const reply=path==='/api/auth/me'?{status:200,data:{user:me,self:true}}:path.startsWith('/api/users?')?{status:200,data:{users:people}}:path===`/api/users/${other}`&&me?{status:200,data:{user:me,self:false}}:{status:404,data:{error:'unknown user'}};
    return {status:reply.status,ok:reply.status<400,json:async()=>reply.data};
   }};
@@ -162,4 +170,80 @@ test('your own card says which signals members see, the three another member’s
  assert.deepEqual(note(own),['Estas señales ayudan a que la comunidad conecte con cuidado. Mientras estés en el directorio, los miembros ven tu ciudad, tu disponibilidad y tu LinkedIn; tus referencias y tu portafolio no se les muestran.']);
  own.setLang('pt');assert.deepEqual(note(own),['Estes sinais ajudam a comunidade a conectar com cuidado. Enquanto você estiver no diretório, os membros veem sua cidade, sua disponibilidade e seu LinkedIn; suas referências e seu portfólio não são mostrados a eles.']);
  own.setLang('en');assert.deepEqual(note(own),['These signals help the community connect with care. While you are in the directory, members see your city, availability and LinkedIn; your references and portfolio are not shown to them.']);
+});
+
+
+test('a profile photo appears on a member card with controls only for its owner', async () => {
+ const photoUrl='/api/users/ana-id/photo?v=one';
+ const owner=page({me:{...ana,photoUrl}});
+ await flush();
+ assert.equal(owner.ids.pfPhoto.getAttribute('src'),photoUrl);
+ assert.equal(owner.ids.pfPhotoTools.hidden,false);
+ assert.equal(owner.ids.pfChoosePhoto.textContent,'Cambiar foto');
+ owner.ids.pfPhoto.listeners.load();
+ assert.equal(owner.ids.pfPhoto.hidden,false);
+ owner.ids.pfPhoto.listeners.error();
+ assert.equal(owner.ids.pfPhoto.hidden,true,'initials stay in place if the member photo cannot load');
+ owner.setLang('pt');
+ assert.equal(owner.ids.pfChoosePhoto.textContent,'Alterar foto');
+
+ let writes=0;
+ const other=page({me:{...ana,photoUrl},other:ana.id,photoWrite:()=>{writes++;}});
+ await flush();
+ assert.equal(other.ids.pfPhoto.getAttribute('src'),photoUrl);
+ assert.equal(other.ids.pfPhotoTools.hidden,true);
+ await other.ids.pfRemovePhoto.listeners.click();
+ assert.equal(writes,0);
+
+ const external=page({me:{...ana,photoUrl:'https://elsewhere.example/api/users/ana-id/photo?v=one'},other:ana.id});
+ await flush();
+ assert.equal(external.ids.pfPhoto.getAttribute('src'),null);
+});
+
+test('photo preview sends a bounded JPEG only after Save, survives a failed upload and can be removed', async () => {
+ const saved='/api/users/ana-id/photo?v=saved',writes=[];
+ const h=page({me:ana,photoWrite:async options=>{
+   writes.push(options);
+   if(writes.length===1)return {status:503,ok:false,json:async()=>({})};
+   return {status:200,ok:true,json:async()=>({photoUrl:options.method==='DELETE'?null:saved})};
+ }});
+ await flush();
+ assert.equal(h.ids.pfChoosePhoto.textContent,'Añadir foto');
+ assert.equal(h.ids.pfRemovePhoto.hidden,true);
+ const file={name:'site.png',type:'image/png'};
+ const jpeg=new Blob(['normalized'],{type:'image/jpeg'});
+ let draw,closed=false,encoded=0;
+ h.context.createImageBitmap=async()=>({width:900,height:600,close(){closed=true;}});
+ h.context.FileReader=class {readAsDataURL(){this.result='data:image/jpeg;base64,bm9ybWFsaXplZA==';this.onload();}};
+ const create=h.context.document.createElement;
+ h.context.document.createElement=tag=>tag!=='canvas'?create(tag):{
+   getContext:()=>({fillRect(){},drawImage(...args){draw=args.slice(1);}}),
+   toBlob(fn,type){assert.equal(type,'image/jpeg');fn(++encoded===1?new Blob([new Uint8Array(140000)],{type}):jpeg);},
+ };
+ h.ids.pfPhotoFile.files=[file];
+ await h.ids.pfPhotoFile.listeners.change();
+ assert.deepEqual(draw,[150,0,600,600,0,0,512,512]);
+ assert.ok(closed);
+ assert.equal(encoded,2);
+ assert.equal(writes.length,0);
+ assert.equal(h.ids.pfSavePhoto.hidden,false);
+ assert.equal(h.ids.pfSavePhoto.focused,true);
+ await h.ids.pfSavePhoto.listeners.click();
+ assert.equal(h.ids.pfSavePhoto.hidden,false,'a failed save keeps the prepared photo');
+ assert.equal(h.ids.pfPhotoStatus.dataset.error,'true');
+ await h.ids.pfSavePhoto.listeners.click();
+ assert.equal(writes[1].method,'PUT');
+ assert.equal(writes[1].headers['Content-Type'],'image/jpeg');
+ assert.equal(writes[1].body,jpeg);
+ assert.equal(h.ids.pfPhoto.getAttribute('src'),saved);
+ assert.equal(h.ids.pfRemovePhoto.hidden,false);
+ await h.ids.pfRemovePhoto.listeners.click();
+ assert.equal(writes[2].method,'DELETE');
+ assert.equal(h.ids.pfPhoto.getAttribute('src'),null);
+ assert.equal(h.ids.pfChoosePhoto.textContent,'Añadir foto');
+ assert.equal(h.ids.pfPhotoStatus.textContent,'Foto eliminada.');
+ h.ids.pfPhotoFile.files=[{type:'text/plain',name:'not-a-picture.txt'}];
+ await h.ids.pfPhotoFile.listeners.change();
+ assert.equal(h.ids.pfPhotoStatus.dataset.error,'true');
+ assert.equal(writes.length,3);
 });
