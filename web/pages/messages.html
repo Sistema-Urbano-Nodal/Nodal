@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" translate="no">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <title>Messages · NODAL</title>
+  <link rel="stylesheet" href="locale.css?v=20260929a">
+  <script src="locale.js?v=20261009a"></script>
+  <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="fonts.css?v=20260911b">
+  <link rel="stylesheet" href="messages.css?v=20261118c">
+  <script defer src="i18n.js?v=20261116a"></script>
+  <script defer src="messages-i18n.js?v=20261118c"></script>
+  <script defer src="messages.js?v=20261118c"></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <a class="brand" href="dashboard.html"><img src="assets/nodal-wordmark.webp" width="360" height="143" alt="NODAL"></a>
+      <a class="dashboard-link" href="dashboard.html"><span aria-hidden="true">←</span> <span data-msg="dashboard">My dashboard</span></a>
+      <div class="lang-switch" role="group" data-i18n-aria-label="nav.languageLabel" aria-label="Language">
+        <button type="button" class="lang-btn" data-lang="en" aria-label="EN, English">EN</button>
+        <button type="button" class="lang-btn" data-lang="es" aria-label="ES, Español">ES</button>
+        <button type="button" class="lang-btn" data-lang="pt" aria-label="PT, Português">PT</button>
+      </div>
+    </div>
+  </header>
+  <main class="workspace">
+    <header class="page-title">
+      <h1 data-msg="messages">Messages</h1>
+      <div class="actions">
+        <a class="button secondary" href="messages.html?new=group" data-msg="newGroup">New group</a>
+        <a class="button primary" href="messages.html?new=message" data-msg="newMessage">New message</a>
+      </div>
+    </header>
+    <div class="panes">
+      <aside class="inbox" aria-labelledby="inbox-title">
+        <h2 id="inbox-title" data-msg="inbox">Inbox</h2>
+        <div id="inbox-list"></div>
+      </aside>
+      <section id="detail" class="detail">
+        <p role="status" data-msg="loading">Loading…</p>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

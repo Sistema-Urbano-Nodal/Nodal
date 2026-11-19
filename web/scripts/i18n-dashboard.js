@@ -5,6 +5,11 @@
    i18n.js (tests/i18n-split.test.js). Placeholders interpolate as {name}. */
 window.NODAL_I18N_DASH = {
   en: {
+    'd.nav.messages': 'Messages',
+    'p.groupVisibility': 'Group projects are visible to the people who join the group.',
+    'd.search.message': 'Message',
+    'd.search.messageTo': 'Message {name}',
+    'd.nav.messagesUnread': '{n} unread conversations and invitations',
     'd.sheet.cityPending': 'City not set',
     'd.greet.morning': 'Good morning',
     'd.greet.afternoon': 'Good afternoon',
@@ -736,6 +741,11 @@ window.NODAL_I18N_DASH = {
     'd.aria.partC': 'Part C · profile depth',
   },
   es: {
+    'd.nav.messages': 'Mensajes',
+    'p.groupVisibility': 'Los proyectos de un grupo son visibles para quienes se unen a él.',
+    'd.search.message': 'Enviar mensaje',
+    'd.search.messageTo': 'Enviar mensaje a {name}',
+    'd.nav.messagesUnread': 'Conversaciones sin leer e invitaciones: {n}',
     'd.title': 'NODAL · Panel de miembro',
     'd.nav.general': 'General',
     'd.nav.overview': 'Panel',
@@ -1565,6 +1575,11 @@ window.NODAL_I18N_DASH = {
     'd.aria.partC': 'Parte C · profundidad del perfil',
   },
   pt: {
+    'd.nav.messages': 'Mensagens',
+    'p.groupVisibility': 'Os projetos de um grupo ficam visíveis para quem participa dele.',
+    'd.search.message': 'Enviar mensagem',
+    'd.search.messageTo': 'Enviar mensagem para {name}',
+    'd.nav.messagesUnread': 'Conversas não lidas e convites: {n}',
     'd.title': 'NODAL · Painel do membro',
     'd.nav.general': 'Geral',
     'd.nav.overview': 'Painel',

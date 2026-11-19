@@ -315,6 +315,10 @@ Nothing changes in Vercel.
 npx --no-install supabase db query --linked -f docs/ops/2026-11-14-metrics-baseline.sql
 ```
 
+## Private messages and project groups
+
+Before releasing the member workspace, apply `supabase/migrations/20261119013754_member_workspace.sql` using the SQL Migration Steps below and record version `20261119013754` in migration history. The migration adds the service-only `member_workspace` function, private group data and account-erasure triggers. The Messages page and account export use this function. Verify the member flow with test accounts on a local database before release.
+
 ## Admin home and metrics: one migration before `main`
 
 `20261114010000_metrics.sql` holds what the admin home (`/admin-home.html`, read
@@ -695,8 +699,8 @@ npm start
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
 2. Apply every pending Supabase migration (every file in the release sections
-   above, most recently `20261114010000_metrics.sql` under
-   "Admin home and metrics", before pushing `main`) one file
+   above, most recently `20261119013754_member_workspace.sql` under
+   "Private messages and project groups", before pushing `main`) one file
    at a time as described in "SQL Migration Steps" (never `supabase db push`
    against production) and confirm them.
 3. Configure Vercel environment variables.

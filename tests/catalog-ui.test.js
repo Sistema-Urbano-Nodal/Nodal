@@ -1390,7 +1390,9 @@ test('dashboard People search sends what was typed in a POST body, never in the 
   assert.deepEqual(JSON.parse(requests[0].options.body), { q: 'ana@example.test' });
   assert.ok(requests[0].options.signal, 'the lookup can still be cancelled');
   assert.match(renderedText(harness.pop), /Ana Pereira/);
-  assert.equal(harness.pop.children[0].href, 'profile.html?id=person-1');
+  const [profile, message] = harness.pop.children[0].children;
+  assert.equal(profile.href, 'profile.html?id=person-1');
+  assert.equal(message.href, 'messages.html?to=person-1');
 });
 
 // The catalog scopes search with a GET (the public, cacheable catalog): an address typed in the box is never sent there,

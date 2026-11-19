@@ -86,5 +86,6 @@ test('DEPLOYMENT.md applies the metrics migration before main', () => {
   assert.match(step, /before pushing `main`/);
   const steps = deployment.slice(deployment.indexOf('## Production Deployment Steps'));
   const apply = oneLine(steps.slice(steps.indexOf('\n2. '), steps.indexOf('\n3. ')));
-  assert.ok(apply.includes('most recently `20261114010000_metrics.sql` under "Admin home and metrics"'), apply);
+  assert.ok(apply.includes('Apply every pending Supabase migration'), apply);
+  assert.ok(apply.includes('before pushing `main`'), apply);
 });

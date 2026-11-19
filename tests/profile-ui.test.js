@@ -74,6 +74,8 @@ test('your own hidden profile offers no link to copy, and says how to make it sh
  assert.deepEqual(listed.buttons().map(b=>b.textContent),['Copiar enlace del perfil']);assert.doesNotMatch(listed.actions.textContent,/Para compartir/);
  const other=page({me:{...ana,partC:{consent:false}},other:'ana-id'});await flush();
  assert.deepEqual(other.buttons().map(b=>b.textContent),['Copiar enlace del perfil'],'another member’s listed profile can be shared');
+ assert.ok(all(other.ids.pfBtns).some(n=>n.href==='messages.html?to=ana-id'&&n.textContent==='Enviar mensaje'));
+ assert.match(other.ids.pfProjects.textContent,/visibles para quienes se unen/);
 });
 
 /* The placeholders leave the page rather than being hidden: styles.css gives the members-only card display:grid,

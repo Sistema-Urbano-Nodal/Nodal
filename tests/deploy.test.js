@@ -318,7 +318,7 @@ test('Supabase Data API smoke exercises reads, constrained inserts, updates, and
 });
 
 test('changed one-hour-cached clients use new URLs on every consuming page', () => {
-  const pages = Object.fromEntries(['index.html', 'fundadores.html', 'opportunities.html', 'dashboard.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'admin-home.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
+  const pages = Object.fromEntries(['index.html', 'fundadores.html', 'opportunities.html', 'dashboard.html', 'messages.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'admin-home.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
   const pilot = { 'pilot-i18n.js': '20261116a', 'pilot.js': '20261116a', 'courses.css': '20261116a' };
   const visit = { 'visit.js': '20261114b' };
@@ -327,11 +327,12 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'index.html': { 'styles.css': '37', 'i18n.js': '20261116a', 'app.js': '20261116a', 'recs.js': '6', 'script.js': '18', 'hero-network.js': '2', 'node-request.js': '20261116a', 'node-request.css': '20261109a' , ...visit },
     'fundadores.html': { 'styles.css': '37', 'i18n.js': '20261116a', 'nav.js': '20261116a', 'locale.js': '20261009a', 'fundadores.js': '20261029a', 'fundadores.css': '20261029a' , ...visit },
     'opportunities.html': { 'catalog.css': '8', 'i18n.js': '20261116a', 'catalog.js': '8', ...pilot , ...visit },
-    'dashboard.html': { 'buc.js': '20261116a', 'i18n-dashboard.js': '20261117a', 'i18n.js': '20261116a', ...festival, 'fiiu-live.js': '20261116a', 'fiiu-hubs.js': '20261116a', 'news-feed.js': '20261001b', 'dashboard.js': '20261117a', 'dashboard.css': '43', 'location-check.js': '20261116a', ...pilot , ...visit },
+    'messages.html': { 'messages.js': '20261118c', 'messages-i18n.js': '20261118c', 'messages.css': '20261118c' },
+    'dashboard.html': { 'buc.js': '20261116a', 'i18n-dashboard.js': '20261118a', 'i18n.js': '20261116a', ...festival, 'fiiu-live.js': '20261116a', 'fiiu-hubs.js': '20261116a', 'news-feed.js': '20261001b', 'dashboard.js': '20261118a', 'dashboard.css': '44', 'location-check.js': '20261116a', ...pilot , ...visit },
     'login.html': { 'i18n.js': '20261116a', 'auth.js': '20261116a', 'recovery-i18n.js': '20261022a' , ...visit },
     'reset-password.html': { 'i18n.js': '20261116a', 'recovery-i18n.js': '20261022a', 'password-recovery.js': '20261116a' },
     'payments.html': { 'i18n-dashboard.js': '20261117a', 'i18n.js': '20261116a', 'payments.js': '20261116a', ...pilot , ...visit },
-    'profile.html': { 'i18n-dashboard.js': '20261117a', 'i18n.js': '20261116a', 'profile.js': '20261116a', 'styles.css': '37', ...pilot , ...visit },
+    'profile.html': { 'i18n-dashboard.js': '20261118a', 'i18n.js': '20261116a', 'profile.js': '20261118a', 'styles.css': '37', ...pilot , ...visit },
     'admin.html': { 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n-dashboard.js': '20261117a', 'styles.css': '37', 'admin.css': '20261109a', 'admin.js': '20261116a', 'i18n.js': '20261116a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261116a', 'script.js': '18' , ...visit },
     'admin-home.html': { 'admin-home.css': '20261117c', 'admin-home.js': '20261117c', 'styles.css': '37', 'admin.css': '20261109a', 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n.js': '20261116a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261116a', 'script.js': '18', ...visit },
     'course.html': { 'buc.js': '20261116a', 'i18n.js': '20261116a', 'courses.js': '20261116a', ...pilot , ...visit },
@@ -485,6 +486,14 @@ test('every translation key a script asks for resolves in all three languages', 
   runInNewContext(readFileSync(path.join(ROOT,'web/scripts/pilot-i18n.js'),'utf8'),pilotContext);
   const pilotRows=pilotContext.window.pilotI18n.rows;
   for(const [key,values]of Object.entries(pilotRows))assert.ok(values.length===3&&values.every(v=>typeof v==='string'&&v.trim()),`pilot key ${key} must have all three languages`);
+  const messagesContext = { window: {} };
+  runInNewContext(readFileSync(path.join(ROOT, 'web/scripts/messages-i18n.js'), 'utf8'), messagesContext);
+  const messageRows = messagesContext.window.nodalMessagesText;
+  for (const [key, values] of Object.entries(messageRows)) {
+    assert.ok(values.length === 3 && values.every(value => typeof value === 'string' && value.trim()), `workspace key ${key}`);
+  }
+  const messagesPage = readFileSync(path.join(ROOT, 'web/pages/messages.html'), 'utf8');
+  for (const match of messagesPage.matchAll(/data-msg="([^"]+)"/g)) assert.ok(messageRows[match[1]], match[1]);
   const invitationContext={window:{},document:{documentElement:{},querySelectorAll:()=>[],querySelector:()=>null},localStorage:{getItem:()=>null}};
   runInNewContext(readFileSync(path.join(ROOT,'web/scripts/invitation-i18n.js'),'utf8'),invitationContext);
   const invitationRows=invitationContext.window.nodalInvitationI18n.rows;
@@ -505,6 +514,10 @@ test('every translation key a script asks for resolves in all three languages', 
     const festival=file.startsWith('fiiu')?festivalRows(file,js):null;
     for (const m of js.matchAll(/\bt\(\s*'([^']+)'/g)) {
       const key = m[1];
+      if (file === 'messages.js') {
+        if (!messageRows[key]) missing.push(`${file}: '${key}' is missing from workspace translations`);
+        continue;
+      }
       if(festival){
         if(!festival[key])missing.push(`${file}: '${key}' is missing from festival translations`);
         continue;

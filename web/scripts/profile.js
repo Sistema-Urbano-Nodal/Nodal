@@ -128,6 +128,12 @@
       const edit = el('a', 'btn btn-primary', t(isSelf ? 'p.edit' : 'p.back'));
       edit.href = 'dashboard.html';
       btns.replaceChildren(edit);
+      if (!isSelf) {
+        edit.className = 'btn btn-ghost';
+        const message = el('a', 'btn btn-primary', t('d.search.message'));
+        message.href = `messages.html?to=${encodeURIComponent(user.id)}`;
+        btns.replaceChildren(message, edit);
+      }
       /* Until you opt into the directory, your link opens "Member not found" for everyone else
          (the server answers 404), so it is not offered; a line says how to make it shareable. */
       if (isSelf && !user.partC.consent) {
@@ -158,11 +164,12 @@
 
     const projects = $('pfProjects');
     if (projects) {
-      const item = el('li');
-      const head = el('div', 'pf-proj-head');
-      head.append(el('h3', '', t('p.noProjects')), el('span', 'pf-status', t('p.open')));
-      item.append(head, el('p', '', t('p.noProjectsBody')));
-      projects.replaceChildren(item);
+      projects.replaceChildren(el('p', '', t('p.groupVisibility')));
+      if (isSelf) {
+        const groups = el('a', 'btn btn-ghost', t('d.nav.messages'));
+        groups.href = 'messages.html';
+        projects.append(groups);
+      }
     }
 
     const locked = signalsHost;
@@ -194,7 +201,6 @@
     }
 
     set('pfActConn', '0');
-    set('pfActProj', '0');
     set('pfActCourses', '0');
     set('pfActSince', new Date(user.createdAt || Date.now()).getFullYear());
     renderConnections(user);

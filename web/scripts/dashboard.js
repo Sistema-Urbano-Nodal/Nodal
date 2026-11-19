@@ -1438,6 +1438,7 @@
           || searchInput.value.trim().toLowerCase() !== normalizedQuery) return;
         const hits = (Array.isArray(data.users) ? data.users : []).map((u) => ({
           label: u.name,
+          memberId: u.id,
           // 'Member' is the server's no-title sentinel. Read when drawn, so a kept answer follows a language switch.
           get meta() { return [u.role === 'Member' ? t('d.role.member') : u.role, u.city].filter(Boolean).join(' · '); },
           href: `profile.html?id=${encodeURIComponent(u.id)}`,
@@ -1530,7 +1531,13 @@
       const a = el('a', 'search-hit');
       a.href = item.href;
       a.append(el('strong', null, item.label), el('span', null, item.meta));
-      return a;
+      if (!item.memberId) return a;
+      const row = el('div', 'person-hit');
+      const message = el('a', 'person-message', t('d.search.message'));
+      message.href = `messages.html?to=${encodeURIComponent(item.memberId)}`;
+      message.setAttribute('aria-label', t('d.search.messageTo', { name: item.label }));
+      row.append(a, message);
+      return row;
     }));
     searchPop.hidden = false;
   }
@@ -1670,6 +1677,23 @@
     renderWeek();
     renderTimeline();
     renderNotifs();
+    renderWorkspaceCount();
+  }
+  let workspaceCount = 0;
+  function renderWorkspaceCount() {
+    const badge = byId('workspaceUnread');
+    if (!badge) return;
+    badge.hidden = workspaceCount === 0;
+    badge.textContent = String(workspaceCount);
+    badge.setAttribute('aria-label', t('d.nav.messagesUnread', { n: workspaceCount }));
+  }
+
+  async function loadWorkspaceCount() {
+    try {
+      const inbox = await api('/api/workspace');
+      workspaceCount = inbox.threads.filter(thread => thread.unread).length + inbox.invitations.length;
+      renderWorkspaceCount();
+    } catch { /* The inbox link stays available when its count is unavailable. */ }
   }
   const saveRetry = byId('saveRetry');
   saveRetry?.addEventListener('click', () => {
@@ -1720,6 +1744,7 @@
       const retry = byId('loadRetry');
       if (retry) retry.hidden = true;
       applyAll();
+      if (byId('workspaceUnread')) void loadWorkspaceCount();
       if (!partADone() && !promptDeclined()) openUserDialog();
     } catch (error) {
       // api() handles the login redirect for 401. Any other failure says so and

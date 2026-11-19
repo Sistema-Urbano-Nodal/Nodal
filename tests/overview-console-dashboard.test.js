@@ -303,7 +303,7 @@ test('a city refused because it changed elsewhere gives way to the stored one, t
   assert.deepEqual([refused.city, refused.expectedCity, refused.title], ['Arequipa', 'Lima', 'Urban planner']);
   assert.equal('city' in resent, false, 'the other changes go once more, without a city');
   assert.equal(resent.title, 'Urban planner');
-  assert.deepEqual(c.requests.map((r) => `${r.method} ${r.url}`), ['GET /api/auth/me', 'PATCH /api/me', 'GET /api/auth/me', 'PATCH /api/me'],
+  assert.deepEqual(c.requests.filter(r => r.url !== '/api/workspace').map((r) => `${r.method} ${r.url}`), ['GET /api/auth/me', 'PATCH /api/me', 'GET /api/auth/me', 'PATCH /api/me'],
     'the stored city is read again once, after the refusal');
   assert.deepEqual([c.stored.city, c.stored.title], ['Cusco', 'Urban planner']);
   assert.equal(c.text('sheetCity'), 'Cusco');

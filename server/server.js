@@ -23,6 +23,8 @@ import { createLive } from './fiiu-live.js';
 import { resolveCheckinSecret, checkinClock } from './fiiu-checkin.js';
 import { createRegistrationConfirmation, createPartyNotice } from './fiiu-email.js';
 import { encodeQr as encodeQrCode } from './qr.js';
+import { createSqliteWorkspace } from './workspace-sqlite.js';
+import { createHostedWorkspace, serveWorkspace } from './workspace-api.js';
 import { createNewsStore } from './news-repository.js';
 import { createNewsApi } from './news-api.js';
 import { createNodeRequestStore } from './node-requests-repository.js';
@@ -69,9 +71,9 @@ const MAX_BODY = 32 * 1024;
 // /fiiu-checkin.html is public on purpose: a signed-out scan must land on the check-in page, which says
 // "Sign in to check in" for that session and links to sign-in with the same code. It holds no data, and
 // /api/fiiu/checkin still requires a session.
-const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html', '/dashboard.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html', '/admin-home.html']);
-const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'terminos-fundadores.html', 'fundadores.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html', 'admin-home.html']);
-const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'buc.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js', 'membership-terms.js', 'fundadores.js', 'node-request.js', 'visit.js', 'admin-nav.js', 'admin-home.js']);
+const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html', '/dashboard.html', '/messages.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html', '/admin-home.html']);
+const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'messages.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'terminos-fundadores.html', 'fundadores.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html', 'admin-home.html']);
+const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'buc.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'messages.js', 'messages-i18n.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js', 'membership-terms.js', 'fundadores.js', 'node-request.js', 'visit.js', 'admin-nav.js', 'admin-home.js']);
 /* /admin is the short address of the administrators' front door, the metrics home. */
 const ADMIN_ALIASES = new Set(['/admin']);
 /* The check-in screen shows <host>/checkin for phones that cannot scan. Typed by hand it may come in any case, without
@@ -81,7 +83,7 @@ const CHECKIN_ALIASES = new Set(['/checkin', '/fiiu-checkin', '/fiiu-checkin.htm
    projected (fiiu-talk.html?a=, ?q=, &present=1) goes there with its query, in any of the spellings above; so do loose
    spellings of the session page itself, whose address the projector shows for typing. */
 const SESSION_ALIASES = new Set(['/fiiu-talk', '/fiiu-talk.htm', '/fiiu-talk.html', '/fiiu-session', '/fiiu-session.htm', '/fiiu-session.html']);
-const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css', 'admin-home.css']);
+const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'messages.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css', 'admin-home.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
 // The FIIU summary email's logo (server/fiiu-email.js), loaded by mail clients from other origins.
@@ -1114,6 +1116,8 @@ export function createApp({
   talkClock = Date.now,
   // The byte windows of the download budget course and festival files share (courses-api.js); tests shrink it.
   downloadLimits = DOWNLOAD_LIMITS,
+  workspaceStore = repository?.database ? createSqliteWorkspace(repository.database)
+    : repository?.kind === 'supabase' ? createHostedWorkspace() : null,
   newsStore = repository?.database ? createNewsStore({db:repository.database}) : repository?.kind === 'supabase' ? createNewsStore() : null,
   // Organisation node requests from the landing page (server/node-requests-api.js), on the same backend as the news.
   nodeRequestStore = repository?.database ? createNodeRequestStore({db:repository.database}) : repository?.kind === 'supabase' ? createNodeRequestStore() : null,
@@ -1361,6 +1365,8 @@ export function createApp({
   const readingsLimiter=createWindowRateLimiter({windowMs:60000,limit:600});
   // NODAL news: guests read the public feed from shared venue or office Wi-Fi, so their budget mirrors the FIIU
   // public read one; the desk's writes share a small per-account budget.
+  const workspaceReadLimiter = createWindowRateLimiter({ windowMs: 60000, limit: 120 });
+  const workspaceWriteLimiter = createWindowRateLimiter({ windowMs: 60000, limit: 60 });
   const newsReadLimiter=createWindowRateLimiter({windowMs:60000,limit:120});
   const newsPublicReadLimiter=createWindowRateLimiter({windowMs:60000,limit:600});
   const newsWriteLimiter=createWindowRateLimiter({windowMs:60000,limit:30});
@@ -1455,7 +1461,7 @@ export function createApp({
         || /^\/api\/(?:fiiu|admin\/fiiu)(?:\/|$)/.test(pathname)
         || /^\/api\/(?:admin\/)?news(?:\/|$)/.test(pathname)
         || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback(?:\/|$)|admin\/feedback(?:\/|$))/.test(pathname)
-        || ID_ONLY_API.test(pathname) || (req.method === 'DELETE' && pathname === '/api/me');
+        || pathname === '/api/workspace' || ID_ONLY_API.test(pathname) || (req.method === 'DELETE' && pathname === '/api/me');
       const optionalSession = (req.method === 'GET' || req.method === 'HEAD')
         && (isApiRequest ? OPTIONAL_SESSION_API.test(pathname) : canonical === '/login.html');
       let session = { user: null, cookies: [] };
@@ -1539,6 +1545,13 @@ export function createApp({
       // Before the FIIU API, which would ask the sessionless pulse to sign in; other paths it does not own fall through.
       if(talkApi && await talkApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       if(fiiuApi && await fiiuApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
+      if (pathname === '/api/workspace') {
+        const limiter = req.method === 'GET' ? workspaceReadLimiter : workspaceWriteLimiter;
+        await serveWorkspace({ req, res, url, actor: sessionUser, store: workspaceStore, send, sameOrigin, readJsonBody,
+          allowed: () => throttle(limiter, res, req, sessionUser, 'workspace'),
+        });
+        return;
+      }
       if(newsApi && await newsApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       if(nodeRequestApi && await nodeRequestApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       if(metricsApi && await metricsApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
@@ -2010,6 +2023,7 @@ export function createApp({
         const data=await repository.exportUserData(sessionUser.id);
         if(courseStore)data.coursePilot=await exportCourseData(courseStore,sessionUser.id);
         if(fiiuStore)data.fiiu=await exportFiiuData(fiiuStore,sessionUser.id);
+        if (workspaceStore) data.memberWorkspace = await workspaceStore.execute(sessionUser.id, 'export', {});
         if(talkStore)data.fiiuConversations=await exportTalkData(talkStore,sessionUser.id);
         send(res, 200, { data });
         return;

@@ -267,6 +267,13 @@ select:focus-visible, textarea:focus-visible {
   padding: 11px 14px; border-bottom: 1px solid var(--rule);
 }
 .search-hit:last-child { border-bottom: 0; }
+.person-hit { display: flex; align-items: center; gap: 8px; padding-right: 10px; border-bottom: 1px solid var(--rule); }
+.person-hit:last-child { border-bottom: 0; }
+.person-hit .search-hit { flex: 1; min-width: 0; flex-wrap: wrap; gap: 2px 12px; border: 0; }
+.person-hit .search-hit > * { max-width: 100%; overflow-wrap: anywhere; }
+.person-message { display: inline-flex; align-items: center; min-height: 40px; padding: 0 10px; color: var(--forest); font-size: 12px; font-weight: 700; }
+.person-message:hover, .person-message:focus-visible { background: var(--well); text-decoration: underline; }
+.side-count:not([hidden]) { margin-left: auto; padding: 2px 7px; background: var(--pastel); color: var(--ink); border-radius: 50px; font: 700 12px var(--font-data); }
 .search-hit:hover { background: var(--well); }
 /* inset, so the scrolling popover cannot clip it */
 .search-hit:focus-visible { background: var(--well); outline: 2px solid var(--forest); outline-offset: -2px; }

@@ -15,12 +15,12 @@
   <link rel="stylesheet" href="styles.css?v=37" />
   <link rel="stylesheet" href="courses.css?v=20261116a" />
 
-  <script defer src="i18n-dashboard.js?v=20261117a"></script>
+  <script defer src="i18n-dashboard.js?v=20261118a"></script>
   <script defer src="i18n.js?v=20261116a"></script>
   <script defer src="pilot-i18n.js?v=20261116a"></script>
   <script defer src="pilot.js?v=20261116a"></script>
   <script defer src="nav.js?v=20261116a"></script>
-  <script defer src="profile.js?v=20261116a"></script>
+  <script defer src="profile.js?v=20261118a"></script>
   <script defer src="visit.js?v=20261114b"></script>
 </head>
 <body class="profile-page">
@@ -85,15 +85,7 @@
           <article class="pf-card">
             <span class="pf-num" aria-hidden="true">P.02</span>
             <h2 data-i18n="p.projects">Projects</h2>
-            <ul class="pf-projects" id="pfProjects">
-              <li>
-                <div class="pf-proj-head">
-                  <h3 data-i18n="p.noProjects">No projects yet</h3>
-                  <span class="pf-status" data-i18n="p.open">Open</span>
-                </div>
-                <p data-i18n="p.noProjectsBody">Projects appear here as you join collaborations through the NODAL network.</p>
-              </li>
-            </ul>
+            <div id="pfProjects"><p data-i18n="p.groupVisibility">Group projects are visible to the people who join the group.</p></div>
           </article>
 
           <article class="pf-card pf-locked" data-billing-only>
@@ -122,7 +114,6 @@
             <h2 data-i18n="p.activity">Activity</h2>
             <dl>
               <div><dt data-i18n="p.actConn">Connections</dt><dd id="pfActConn">0</dd></div>
-              <div><dt data-i18n="p.actProj">Projects</dt><dd id="pfActProj">0</dd></div>
               <div><dt data-i18n="p.actCourses">Courses completed</dt><dd id="pfActCourses">0</dd></div>
               <div><dt data-i18n="p.actSince">Member since</dt><dd id="pfActSince">--</dd></div>
             </dl>
