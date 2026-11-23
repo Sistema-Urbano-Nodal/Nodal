@@ -436,12 +436,18 @@ test('admin catalog APIs are server-authorized, versioned, and keep the interest
     body: JSON.stringify(completeItem({ status: 'draft', deadlineAt: '2030-12-31T12:00:00-00:00' })),
   });
   assert.equal(unknownOffset.status, 400);
+  const preference = await fetch(`${base}/api/news/email-preference`, {method:'PUT',
+    headers:{Cookie:member.cookie,'Content-Type':'application/json',Origin:base},body:JSON.stringify({enabled:true,language:'es'})});
+  assert.equal(preference.status,200);
   const createdResponse = await fetch(`${base}/api/admin/catalog`, { method: 'POST', headers: adminHeaders, body: JSON.stringify(completeItem({ actionMode: 'interest', actionUrl: '', featured: true })) });
   assert.equal(createdResponse.status, 201);
   const created = (await createdResponse.json()).item;
   assert.equal(created.featured, true);
   assert.equal(created.version, 1);
   assert.equal(created.createdBy, admin.user.id);
+  const exported = await (await fetch(`${base}/api/me/export`, {headers:{Cookie:member.cookie}})).json();
+  assert.deepEqual(exported.data.newsEmail.deliveries,[{news_id:null,catalog_id:created.id,status:'queued',attempts:0}]);
+
   assert.equal((await fetch(`${base}/api/admin/catalog/${created.id}`, { method: 'DELETE', headers: { Cookie: admin.cookie } })).status, 404);
 
   const updatedResponse = await fetch(`${base}/api/admin/catalog/${created.id}`, { method: 'PATCH', headers: adminHeaders, body: JSON.stringify({ ...created, featured: false, version: created.version }) });

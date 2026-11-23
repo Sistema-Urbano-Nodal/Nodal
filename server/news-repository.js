@@ -1,5 +1,6 @@
 import {createSupabaseClients} from './supabase.js';
 import {fail} from './courses-domain.js';
+import {createNewsAlerts,SQLITE_NEWS_ALERTS} from './news-alerts.js';
 import {snake} from './courses-schema.js';
 
 // NODAL-wide news. The CHECKs repeat the API's limits so a bug there cannot store what the desk would reject;
@@ -26,13 +27,14 @@ const SELECT=NEWS_FIELDS.map(snake).join(',');
 // The public feed reads pinned items first, then the newest publication; the desk reads the newest written first.
 // `after` is the last row of the previous page ({pinned,publishedAt,id} or {createdAt,id}); the API validates it.
 export function createNewsStore({db,env=process.env,clients,fetchImpl=fetch}={}){
- if(db)db.exec(NEWS_SQLITE_SCHEMA);
+ if(db)db.exec(NEWS_SQLITE_SCHEMA+SQLITE_NEWS_ALERTS);
  const supa=db?null:clients??createSupabaseClients({env,fetchImpl});
  const keyset=(published,{pinned,publishedAt,createdAt,id})=>!published?{or:`(created_at.lt.${createdAt},and(created_at.eq.${createdAt},id.lt.${id}))`}
   :pinned?{or:`(pinned.eq.false,and(pinned.eq.true,published_at.lt.${publishedAt}),and(pinned.eq.true,published_at.eq.${publishedAt},id.lt.${id}))`}
   :{pinned:'eq.false',or:`(published_at.lt.${publishedAt},and(published_at.eq.${publishedAt},id.lt.${id}))`};
  return {
   kind:db?'sqlite':'supabase',
+  alerts:createNewsAlerts({db,clients:supa,env,fetchImpl}),
   async list({published=false,after=null,limit=10}={}){
    if(!Number.isInteger(limit)||limit<1||limit>100)throw Error('invalid news limit');
    if(db){

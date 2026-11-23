@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {execFile} from 'node:child_process';
+import {execFile,spawn} from 'node:child_process';
+import {createInterface} from 'node:readline';
+import {setTimeout as wait} from 'node:timers/promises';
 import {promisify} from 'node:util';
 import {readdirSync} from 'node:fs';
 
@@ -60,4 +62,88 @@ test('PostgreSQL news migration enforces private access, the publication rules, 
  await sql(`DELETE FROM profiles WHERE id='${author}';`);
  assert.equal(await sql('SELECT count(*) FROM nodal_news WHERE created_by IS NOT NULL'),'0');
  assert.equal(await sql('SELECT count(*) FROM nodal_news'),'7');
+ await sql(`ALTER TABLE profiles ADD COLUMN account_status text NOT NULL DEFAULT 'active';
+   CREATE TABLE catalog_items(id uuid PRIMARY KEY,kind text,status text,visibility text,featured boolean,translations jsonb);
+   CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY,email text,email_confirmed_at timestamptz);`);
+ await execute('psql',[...args,'-f',new URL('20261122010000_news_email_alerts.sql',migrations).pathname]);
+ for(const role of ['anon','authenticated']){
+  await assert.rejects(sql(`SET ROLE ${role}; SELECT * FROM public.claim_news_email();`),/permission denied/);
+  await assert.rejects(sql(`SET ROLE ${role}; SELECT public.subscribe_news_email(gen_random_uuid(),'es');`),/permission denied/);
+  await assert.rejects(sql(`SET ROLE ${role}; SELECT * FROM public.news_email_preferences;`),/permission denied/);
+ }
+ const sub=crypto.randomUUID(),guest=crypto.randomUUID(),news=crypto.randomUUID();
+ await sql(`INSERT INTO profiles(id) VALUES('${sub}'),('${guest}');
+   INSERT INTO auth.users VALUES('${sub}','test@example.test',now()),('${guest}','guest@example.test',NULL);
+   SET ROLE service_role; INSERT INTO public.news_email_preferences(user_id,language) VALUES('${sub}','pt'),('${guest}','es');`);
+ // No backfill of the seven older posts. Republishing does not insert a second row.
+ assert.equal(await sql('SELECT count(*) FROM public.news_email_outbox'),'0');
+ await sql(`SET ROLE service_role; INSERT INTO nodal_news(id,title,body,url,status,pinned,created_at,updated_at,version)
+   VALUES('${news}','News','','','draft',false,now(),now(),1);
+   UPDATE nodal_news SET status='published',published_at=now() WHERE id='${news}';
+   UPDATE nodal_news SET status='draft' WHERE id='${news}';
+   UPDATE nodal_news SET status='published' WHERE id='${news}';`);
+ assert.equal(await sql('SELECT count(*) FROM public.news_email_outbox'),'2');
+ const claim=()=>sql('SET ROLE service_role; SELECT email,language,attempts FROM public.claim_news_email();');
+ assert.deepEqual((await Promise.all([claim(),claim()])).sort(),['','test@example.test|pt|1']);
+ const exported=JSON.parse(await sql(`SET ROLE service_role; SELECT public.export_news_email('${sub}');`));
+ assert.equal(exported.subscription.language,'pt');assert.deepEqual(exported.deliveries,[{news_id:news,catalog_id:null,status:'sending',attempts:1}]);
+ await sql(`SET ROLE service_role; DELETE FROM public.news_email_preferences WHERE user_id='${sub}';`);
+ assert.equal(await sql(`SELECT count(*) FROM public.news_email_outbox WHERE user_id='${sub}'`),'0');
+ const opportunity=crypto.randomUUID(),resource=crypto.randomUUID();
+ await sql(`INSERT INTO public.news_email_preferences(user_id,language) VALUES('${sub}','pt');
+   SET ROLE service_role; INSERT INTO catalog_items VALUES
+    ('${resource}','resource','published','public',true,'{"pt":{"title":"Guia"}}'),
+    ('${opportunity}','opportunity','published','members',true,'{"pt":{"title":"Vaga"}}');`);
+ assert.equal(await claim(),'');
+ await sql(`SET ROLE service_role; UPDATE catalog_items SET visibility='public' WHERE id='${opportunity}';
+  UPDATE catalog_items SET featured=false WHERE id='${opportunity}';`);
+ assert.equal(await claim(),'');
+ await sql(`SET ROLE service_role; UPDATE catalog_items SET featured=true WHERE id='${opportunity}';`);
+ assert.equal(await sql(`SET ROLE service_role; SELECT catalog_id,title FROM public.claim_news_email();`),opportunity+'|Vaga');
+ assert.equal(await sql(`SELECT count(*) FROM news_email_events WHERE catalog_id='${resource}'`),'0');
+ assert.equal(await claim(),'');
+ const qa=crypto.randomUUID(),draft=crypto.randomUUID(),wrongDraft=crypto.randomUUID(),publicNews=crypto.randomUUID();
+ const testId='test:'+qa+':'+draft,invalidId='test:'+qa+':wrong';
+ await sql(`INSERT INTO profiles(id) VALUES('${qa}'); INSERT INTO auth.users VALUES('${qa}','qa@example.test',now());
+   SET ROLE service_role; INSERT INTO news_email_preferences(user_id,notice_version) VALUES('${qa}','qa:one-message');`);
+ await insert(draft,{createdBy:'NULL'});await insert(wrongDraft,{createdBy:'NULL'});
+ await sql(`SET ROLE service_role; INSERT INTO news_email_events(event_id,news_id)
+     VALUES('${testId}','${draft}'),('${invalidId}','${wrongDraft}');`);
+ assert.equal(await sql("SELECT count(*) FROM news_email_outbox WHERE event_id LIKE 'test:%'"),'0');
+ await sql(`SET ROLE service_role; INSERT INTO news_email_outbox(event_id,user_id)
+   VALUES('${testId}','${sub}'),('${invalidId}','${qa}');`);
+ assert.equal(await claim(),'','a different subscriber and malformed private id are ineligible');
+ await sql(`SET ROLE service_role; INSERT INTO news_email_outbox(event_id,user_id) VALUES('${testId}','${qa}');`);
+ assert.equal(await claim(),'qa@example.test|es|1');
+ await insert(publicNews,{status:"'published'",publishedAt:'now()',createdBy:'NULL'});
+ assert.equal(await sql(`SELECT count(*) FROM news_email_outbox WHERE event_id='n:${publicNews}' AND user_id='${qa}';`),'0');
+ const exportedQa=JSON.parse(await sql(`SET ROLE service_role; SELECT public.export_news_email('${qa}');`));
+ assert.equal(exportedQa.subscription,null);
+ await sql(`SET ROLE service_role; SELECT public.subscribe_news_email('${qa}','en');`);
+ assert.equal(await sql(`SELECT language,notice_version FROM news_email_preferences WHERE user_id='${qa}';`),'en|news-v1');
+
+ // Hold an unsubscribe until the publishing transaction is waiting on that exact row.
+ // Releasing it must let publication finish while omitting the withdrawn recipient.
+ const locker=spawn('psql',args,{stdio:['pipe','pipe','pipe']});
+ const lines=createInterface({input:locker.stdout})[Symbol.asyncIterator]();
+ const raceNews=crypto.randomUUID(),app='news_unsubscribe_race';
+ let published;
+ try {
+   locker.stdin.write(`BEGIN; SET ROLE service_role; DELETE FROM news_email_preferences WHERE user_id='${sub}'; SELECT 'locked';
+`);
+   assert.equal((await lines.next()).value,'locked');
+   published=sql(`SET application_name='${app}'; SET ROLE service_role;
+     INSERT INTO nodal_news(${columns}) VALUES(${values(raceNews,{status:"'published'",publishedAt:'now()',createdBy:'NULL'})});`);
+   published.catch(()=>{}); // A rejection is reported below after releasing the row lock.
+   let waiting=false;
+   for(let i=0;i<100&&!waiting;i++){
+     waiting=await sql(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='${app}' AND wait_event_type='Lock');`)==='t';
+     if(!waiting)await wait(20);
+   }
+   assert.ok(waiting,'publication encountered the concurrent unsubscribe');
+ } finally {locker.stdin.end('COMMIT;\n');}
+ await published;
+ assert.equal(await sql(`SELECT count(*) FROM news_email_outbox WHERE event_id='n:${raceNews}' AND user_id='${sub}';`),'0');
+ assert.equal(await sql(`SELECT count(*) FROM news_email_outbox WHERE event_id='n:${raceNews}' AND user_id='${qa}';`),'1');
+
 });

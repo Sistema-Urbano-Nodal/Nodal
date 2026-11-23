@@ -365,3 +365,34 @@ test('createApp serves the news API with the shared sessions, origin guard and e
  assert.equal((await patch(crypto.randomUUID(),{version:1,title:'x'})).status,404);
  assert.equal((await json(await call(`/api/admin/news/${item.id}`,{method:'DELETE'}))).status,204);
 });
+
+test('news email preferences require the member, same origin and an explicit boolean',async t=>{
+ const {call,json,post,db}=await setup(t);
+ const path='/api/news/email-preference';
+ assert.equal((await call(path,{actor:'guest'})).status,401);
+ const put=(body,options={})=>call(path,{actor:'member',method:'PUT',body,...options});
+ assert.deepEqual((await json(await call(path,{actor:'member'}))).body,{enabled:false});
+ assert.equal((await put({enabled:true},{origin:'https://elsewhere.example'})).status,403);
+ assert.equal((await put({enabled:'true'})).status,400);
+ assert.equal((await put({enabled:true,userId:'another member'})).status,400);
+ assert.equal((await put({enabled:true,language:'other'})).status,400);
+ assert.deepEqual((await json(await put({enabled:true,language:'pt'}))).body,{enabled:true});
+ await post({status:'published'});
+ assert.equal(db.prepare('SELECT count(*) AS n FROM news_email_outbox').get().n,1);
+ assert.equal(db.prepare('SELECT language FROM news_email_preferences').get().language,'pt');
+ assert.deepEqual((await json(await call(path,{actor:'editor'}))).body,{enabled:false});
+ assert.deepEqual((await json(await put({enabled:false}))).body,{enabled:false});
+ assert.equal(db.prepare('SELECT count(*) AS n FROM news_email_outbox').get().n,0);
+});
+
+test('a guest opens exactly the linked published post and a withdrawn item is unavailable',async t=>{
+ const {call,json,post,patch}=await setup(t);
+ const {body:{item}}=await post({status:'draft',title:'Nueva beca'}),path='/api/news/'+item.id;
+ assert.equal((await call(path,{actor:'guest'})).status,404);
+ await patch(item.id,{version:1,status:'published'});
+ const visible=await json(await call(path,{actor:'guest'}));
+ assert.equal(visible.status,200);assert.deepEqual(Object.keys(visible.body.item).sort(),PUBLIC_KEYS);
+ assert.equal(visible.body.item.title,'Nueva beca');
+ await patch(item.id,{version:2,status:'draft'});
+ assert.equal((await call(path,{actor:'guest'})).status,404);
+});

@@ -2065,6 +2065,7 @@ export function createApp({
           const jpeg = await repository.readProfilePhoto(sessionUser.id, sessionUser.id);
           if (jpeg) data.profilePhoto = { contentType: 'image/jpeg', data: jpeg.toString('base64') };
         }
+        if(newsStore?.alerts)data.newsEmail=await newsStore.alerts.exportFor(sessionUser.id);
         if(courseStore)data.coursePilot=await exportCourseData(courseStore,sessionUser.id);
         if(fiiuStore)data.fiiu=await exportFiiuData(fiiuStore,sessionUser.id);
         if (workspaceStore) data.memberWorkspace = await workspaceStore.execute(sessionUser.id, 'export', {});

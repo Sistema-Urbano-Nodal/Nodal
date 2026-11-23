@@ -70,11 +70,19 @@ export function createNewsApi({store,sameOrigin,send,rateLimit=()=>true}){
   const staff=path.startsWith('/api/admin/'),read=['GET','HEAD'].includes(req.method);
   // The public feed is read-only; HEAD is answered like GET (Node sends no body for it).
   if(path==='/api/news'&&!read){send(res,405,{error:'method not allowed'},{Allow:'GET, HEAD'});return true;}
-  if(staff&&!user){send(res,401,{error:'sign in required'});return true;}
+  if((staff||path==='/api/news/email-preference')&&!user){send(res,401,{error:'sign in required'});return true;}
   if(staff&&user.permission!=='admin'){send(res,403,{error:'administrator access required'});return true;}
   if(!read&&!sameOrigin(req)){send(res,403,{error:'cross-origin request rejected'});return true;}
   if(!rateLimit(req,res,user,path))return true;
   try{
+   if(path==='/api/news/email-preference'){
+    if(read){send(res,200,{enabled:await store.alerts.preference(user.id)});return true;}
+    if(req.method!=='PUT'){send(res,405,{error:'method not allowed'},{Allow:'GET, HEAD, PUT'});return true;}
+    const input=await body(req);
+    if(typeof input?.enabled!=='boolean'||Object.keys(input).some(k=>!['enabled','language'].includes(k)))invalid('enabled');
+    if(input.language!==undefined&&!['es','en','pt'].includes(input.language))invalid('language');
+    await store.alerts.subscribe(user.id,input.enabled,input.language);send(res,200,{enabled:input.enabled});return true;
+   }
    if(path==='/api/news'){send(res,200,await page(url,true));return true;}
    if(path==='/api/admin/news'){
     if(read){send(res,200,await page(url,false));return true;}
@@ -91,6 +99,14 @@ export function createNewsApi({store,sameOrigin,send,rateLimit=()=>true}){
      send(res,200,{item:newsAdminView(existing)});return true;
     }
     send(res,201,{item:newsAdminView(item)});return true;
+   }
+   if(path.startsWith('/api/news/')){
+    if(!read){send(res,405,{error:'method not allowed'},{Allow:'GET, HEAD'});return true;}
+    const id=path.slice('/api/news/'.length);
+    let item;
+    try{item=await store.get(identifier(id));}catch(err){if(err.status!==400)throw err;}
+    if(!item||item.status!=='published'){send(res,404,{error:'news item unavailable'});return true;}
+    send(res,200,{item:newsView(item)});return true;
    }
    const match=path.match(/^\/api\/admin\/news\/([^/]+)$/);
    if(match){

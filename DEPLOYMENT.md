@@ -325,6 +325,14 @@ The chat composer and inbox previews use `supabase/migrations/20261119044206_pri
 
 Before releasing the notification bell, apply `supabase/migrations/20261119232657_workspace_notifications.sql` using the same single-file procedure and record version `20261119232657`. Verify that an incoming message and a pending group invitation appear for the recipient, then clear independently when the member reads the chat or responds to the invitation.
 
+## Optional publication emails
+
+Apply `supabase/migrations/20261122010000_news_email_alerts.sql` using the single-file procedure and record version `20261122010000`. Subscribers opt in from [Community](https://sistema-urbano-nodal-ten.vercel.app/community.html#news-email). New published news and public featured opportunities queue one delivery per subscriber. Existing accounts begin unsubscribed. Earlier publications are not backfilled. Unsubscribing removes the account’s pending deliveries.
+
+GitHub Actions runs **Deliver NODAL publication emails** from `main` at minutes 7, 22, 37 and 52 of each UTC hour. GitHub can delay scheduled runs under load. The workflow contacts the production Vercel function at `GET /api/cron/news-email`. Use the same random bearer secret in Vercel’s Production `CRON_SECRET` and the repository Actions secret `NODAL_NEWS_CRON_SECRET`. Redeploy after changing the Vercel secret. The function uses the existing server-side Supabase settings, `EMAIL_SMTP_URL`, `EMAIL_FROM`, `PUBLIC_BASE_URL` and optional `EMAIL_REPLY_TO`.
+
+For an immediate run, choose **Actions → Deliver NODAL publication emails → Run workflow** on `main`. The run records delivery counts. Any deferred delivery remains queued for a later run. For an `uncertain` or stale `sending` row, check the SMTP provider before resending because it may already have accepted the message. `401` indicates that the caller secret is missing or does not match. `503` indicates a configuration or service failure. The CLI `node scripts/deliver-news-alerts.js --send --limit 10` can also run a bounded batch in a configured environment.
+
 ## Course certificates and paid course access
 
 Before releasing the paid-course controls, apply `supabase/migrations/20261123000000_course_founder_grant.sql` through the single-file procedure and record version `20261123000000`. The provenance field lets the teaching workspace distinguish a reconciled paid enrollment from a separate right to attend. Staff should use the merchant record when reconciling an older enrollment.

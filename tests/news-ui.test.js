@@ -50,7 +50,7 @@ function host(dataset = {}) {
   return node;
 }
 
-async function mount(hosts, fetchImpl, lang = 'en', { hash = '' } = {}) {
+async function mount(hosts, fetchImpl, lang = 'en', { hash = '', search = '', preferences = [] } = {}) {
   const requests = [];
   const i18n = loadI18n(lang);
   const context = {
@@ -58,10 +58,10 @@ async function mount(hosts, fetchImpl, lang = 'en', { hash = '' } = {}) {
     URLSearchParams,
     Intl,
     document: {
-      querySelectorAll: (selector) => (selector === '[data-nodal-news]' ? hosts : []),
+      querySelectorAll: (selector) => (selector === '[data-nodal-news]' ? hosts : selector === '[data-news-email]' ? preferences : []),
       createElement: (tag) => new Node(tag),
     },
-    window: { nodalI18n: i18n, location: { hash } },
+    window: { nodalI18n: i18n, location: { hash, search } },
     fetch: async (url, options) => { requests.push({ url, options }); return fetchImpl(url, options); },
   };
   vm.runInNewContext(FEED, context, { filename: 'news-feed.js' });
@@ -203,4 +203,87 @@ test('a link to the news block lands on it once the first page is shown, and not
   await mount([empty], async () => ok({ items: [], nextCursor: null }), 'en', { hash: '#nodal-news' });
   assert.equal(empty.hidden, true);
   assert.equal(empty.scrolls, undefined);
+});
+
+test('the Community email control reads the saved state and submits only an explicit choice',async()=>{
+  const section=host();section.append(...['h2','p','button','span'].map(tag=>new Node(tag)));
+  const writes=[];
+  await mount([host()],async(url,options)=>{
+    if(url.startsWith('/api/news?'))return ok({items:[]});
+    if(options?.method==='PUT'){writes.push(JSON.parse(options.body));return ok({enabled:true});}
+    return ok({enabled:false});
+  },'es',{preferences:[section]});
+  const [,description,button,status]=section.children;
+  assert.equal(section.hidden,false);assert.match(description.textContent,/oportunidades públicas destacadas/);
+  assert.equal(button.textContent,'Suscribirme');assert.equal(writes.length,0);
+  await button.listeners.get('click')();
+  assert.deepEqual(writes,[{enabled:true,language:'es'}]);
+  assert.equal(button.textContent,'Darme de baja');assert.equal(status.textContent,'Suscripción activa.');
+});
+
+test('a signed-out reader can sign in and return directly to the preference in the email', async () => {
+  const section = host();
+  section.id = 'news-email';
+  section.append(...['h2', 'p', 'button', 'span'].map(tag => new Node(tag)));
+  const { i18n } = await mount([host()], async url => url.includes('email-preference')
+    ? { ok: false, status: 401 } : ok({ items: [] }), 'es', { hash: '#news-email', preferences: [section] });
+  assert.equal(section.hidden, false);
+  assert.equal(section.children[2].hidden, true);
+  const link = all(section).find(child => child.tagName === 'a');
+  const target = new URL(link.href, 'https://nodal.example');
+  assert.equal(target.pathname, '/login.html');
+  assert.equal(target.searchParams.get('next'), '/community.html#news-email');
+  assert.match(link.textContent, /Iniciar sesión/);
+  i18n.apply('pt');
+  assert.match(link.textContent, /Entrar/);
+  assert.equal(section.scrolls.length, 1);
+});
+
+test('a temporary read or ambiguous write offers to re-read the actual setting before another change', async () => {
+  const section = host();
+  section.append(...['h2', 'p', 'button', 'span'].map(tag => new Node(tag)));
+  let attempts = 0, enabled = false;
+  const { requests } = await mount([host()], async (url, options) => {
+    if (!url.includes('email-preference')) return ok({ items: [] });
+    if (!attempts++) return { ok: false, status: 503 };
+    if (options?.method === 'PUT') { enabled = true; throw Error('response lost'); }
+    return ok({ enabled });
+  }, 'en', { preferences: [section] });
+  const button = section.children[2];
+  assert.equal(section.hidden, false);
+  assert.equal(button.textContent, 'Try again');
+  await button.listeners.get('click')();
+  assert.equal(button.textContent, 'Subscribe');
+  await button.listeners.get('click')();
+  assert.equal(button.textContent, 'Try again');
+  await button.listeners.get('click')();
+  assert.equal(button.textContent, 'Unsubscribe');
+  assert.deepEqual(requests.filter(r => r.options?.method === 'PUT').map(r => JSON.parse(r.options.body)), [{ enabled: true, language: 'en' }]);
+});
+
+test('a linked news item beyond the first page opens first and is not repeated when browsing older news', async () => {
+  const id = 'b98892a4-ddcb-4671-84e8-23bfa01b4242';
+  const selected = post(id, { title: 'The linked item' });
+  const feed = Object.assign(host({ nodalNewsMore: '' }), { id: 'nodal-news' });
+  const { requests } = await mount([feed], async url => {
+    if (url === '/api/news/' + id) return ok({ item: selected });
+    if (url.includes('cursor=')) return ok({ items: [selected, post('older')] });
+    return ok({ items: [post('pinned', { pinned: true })], nextCursor: 'more' });
+  }, 'en', { search: '?news=' + id, hash: '#nodal-news' });
+  assert.deepEqual(titles(feed), ['The linked item', 'Post pinned']);
+  await all(feed).find(child => child.tagName === 'button').listeners.get('click')();
+  await settle();
+  assert.deepEqual(titles(feed), ['The linked item', 'Post pinned', 'Post older']);
+  assert.equal(requests.filter(r => r.url === '/api/news/' + id).length, 1);
+  assert.equal(feed.scrolls.length, 1);
+});
+
+test('a withdrawn linked item has a visible localised explanation and the regular feed stays usable', async () => {
+  const feed = Object.assign(host(), { id: 'nodal-news' });
+  const { i18n } = await mount([feed], async url => url.includes('?limit')
+    ? ok({ items: [post('other')] }) : { ok: false, status: 404 }, 'es', { search: '?news=b98892a4-ddcb-4671-84e8-23bfa01b4242' });
+  assert.match(textOf(feed), /publicación ya no está disponible/);
+  assert.deepEqual(titles(feed), ['Post other']);
+  i18n.apply('pt');
+  assert.match(textOf(feed), /publicação não está mais disponível/);
 });

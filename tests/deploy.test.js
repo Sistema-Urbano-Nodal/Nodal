@@ -335,7 +335,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'fundadores.html': { 'styles.css': '37', 'i18n.js': '20261116a', 'nav.js': '20261116a', 'locale.js': '20261009a', 'fundadores.js': '20261029a', 'fundadores.css': '20261029a' , ...visit },
     'opportunities.html': { 'catalog.css': '8', 'i18n.js': '20261116a', 'catalog.js': '8', ...pilot , ...visit },
     'messages.html': { 'messages.js': '20261119c', 'messages-i18n.js': '20261119c', 'messages.css': '20261119c' },
-    'dashboard.html': { 'buc.js': '20261116a', 'i18n-dashboard.js': '20261122a', 'i18n.js': '20261116a', ...festival, 'fiiu-live.js': '20261116a', 'fiiu-hubs.js': '20261116a', 'news-feed.js': '20261001b', 'dashboard.js': '20261119c', 'dashboard.css': '20261119c', 'location-check.js': '20261116a', ...pilot , ...visit },
+    'dashboard.html': { 'buc.js': '20261116a', 'i18n-dashboard.js': '20261122a', 'i18n.js': '20261116a', ...festival, 'fiiu-live.js': '20261116a', 'fiiu-hubs.js': '20261116a', 'news-feed.js': '20261123d', 'dashboard.js': '20261119c', 'dashboard.css': '20261119c', 'location-check.js': '20261116a', ...pilot , ...visit },
     'login.html': { 'i18n.js': '20261116a', 'auth.js': '20261116a', 'recovery-i18n.js': '20261022a' , ...visit },
     'reset-password.html': { 'i18n.js': '20261116a', 'recovery-i18n.js': '20261022a', 'password-recovery.js': '20261116a' },
     'payments.html': { 'i18n-dashboard.js': '20261122a', 'i18n.js': '20261116a', 'payments.js': '20261122a', ...pilot , ...visit },
@@ -353,7 +353,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'fiiu-talk.html': { 'buc.js': '20261116a', 'i18n.js': '20261116a', ...festival, 'fiiu-talk.js': '20261029a', 'fiiu-talk.css': '20261020a' , ...visit },
     'fiiu-session.html': { 'buc.js': '20261116a', 'i18n.js': '20261116a', ...festival, 'fiiu-talk.js': '20261029a', 'fiiu-talk.css': '20261020a' , ...visit },
     'organisers-only.html': { 'i18n.js': '20261116a', ...festival },
-    'community.html': { 'styles.css': '37', 'script.js': '18', 'i18n.js': '20261116a', ...festival, 'fiiu-hubs.js': '20261116a', 'news-feed.js': '20261001b' , ...visit },
+    'community.html': { 'styles.css': '37', 'script.js': '18', 'i18n.js': '20261116a', ...festival, 'fiiu-hubs.js': '20261116a', 'news-feed.js': '20261123d' , ...visit },
     'knowledge.html': { 'buc.js': '20261116a', 'styles.css': '37', 'script.js': '18', 'i18n.js': '20261116a', ...festival, 'fiiu-hubs.js': '20261116a' , ...visit },
     'resources.html': { 'styles.css': '37', 'script.js': '18', 'i18n.js': '20261116a', ...festival, 'fiiu-hubs.js': '20261116a' , ...visit },
   };

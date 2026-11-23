@@ -1,0 +1,40 @@
+name: Deliver NODAL publication emails
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: production-news-email
+  cancel-in-progress: false
+
+jobs:
+  deliver:
+    if: github.repository == 'Sistema-Urbano-Nodal/Nodal' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Run the production outbox
+        env:
+          NODAL_NEWS_CRON_SECRET: ${{ secrets.NODAL_NEWS_CRON_SECRET }}
+        run: |
+          node --input-type=module <<'NODE'
+          const secret = process.env.NODAL_NEWS_CRON_SECRET;
+          if (!secret) throw new Error('NODAL_NEWS_CRON_SECRET is missing');
+          const response = await fetch('https://sistema-urbano-nodal-ten.vercel.app/api/cron/news-email', {
+            headers: { Authorization: 'Bearer ' + secret },
+            redirect: 'error',
+            signal: AbortSignal.timeout(310_000),
+          });
+          const counts = await response.json().catch(() => ({}));
+          const keys = ['sent', 'deferred', 'failed', 'uncertain'];
+          if (keys.every(key => Number.isSafeInteger(counts?.[key]) && counts[key] >= 0)) {
+            console.log(keys.map(key => key + '=' + counts[key]).join(' '));
+          } else {
+            throw new Error('Sender did not return delivery counts (HTTP ' + response.status + ')');
+          }
+          if (!response.ok) throw new Error('Sender needs attention (HTTP ' + response.status + ')');
+          NODE
