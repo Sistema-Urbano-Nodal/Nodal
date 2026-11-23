@@ -1,3 +1,4 @@
+import {createCertificateIssuance} from './course-certificate-issuance.js';
 import {newId, identifier, decodeAttachment, fail} from './courses-domain.js';
 import {createCoursePerks} from './course-perks.js';
 
@@ -31,9 +32,9 @@ export async function allRows(store,name,filters={},max=Infinity) {
   if(rows.length>ALL_ROWS_MAX)fail('course data exceeds supported size',503);
   return rows;
 }
-export async function membersForRows(store,rows) {
+export async function membersForRows(store,rows,options) {
   const ids=[...new Set(rows.map(row=>row.userId))],members=new Map();
-  for(let offset=0;offset<ids.length;offset+=100)for(const member of await store.getMembers(ids.slice(offset,offset+100)))members.set(member.id,member);
+  for(let offset=0;offset<ids.length;offset+=100)for(const member of await store.getMembers(ids.slice(offset,offset+100),options))members.set(member.id,member);
   return members;
 }
 // Enrolled people who are not administrators, on the perk course the September group only: the survey's participants.
@@ -213,7 +214,7 @@ export const surveyStatusCsv = people => [
 const slug = value => String(value??'').normalize('NFD').replace(/\p{M}/gu,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').slice(0,60).replace(/^-+|-+$/g,'');
 const personalFilename = (filename,name,userId) => filename.replace(/\.pdf$/,'')+'-'+(slug(name)||userId.slice(0,8))+'.pdf';
 
-export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRows,downloads,isStaff,sendCsv,config=FINAL_SURVEY,clock=Date.now,log=console.error,perks=createCoursePerks()}) {
+export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRows,downloads,isStaff,sendCsv,config=FINAL_SURVEY,clock=Date.now,log=console.error,renderCertificate,perks=createCoursePerks()}) {
   const surveyCourse=config.courseId.toLowerCase(),closes=Date.parse(config.closesAt),lastDay=lastDayOf(config.closesAt);
   const isOpen=()=>clock()<closes,stamp=()=>new Date(clock()).toISOString();
   const errorText=error=>error instanceof Error?error.message:String(error??'unknown error');
@@ -266,18 +267,32 @@ export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRow
       catch(error) { if(error.status!==409)log('course certificate restore failed:',old.id,errorText(error)); }
     }
   }
-  async function upload(req,res,courseId,userId) {
+  async function prepare(courseId,userId,bytes){
+    const id=newId(),record={id,courseId,userId,size:bytes.length,storagePath:`certificates/${courseId}/${userId}/${id}.pdf`,status:'pending',createdAt:stamp()};
+    await store.insert('certificates',record);
+    // If Storage accepted the upload but its reply was lost, reconciliation owns the pending row and file.
+    await store.putCertificate(record,bytes);
+    return record;
+  }
+  const issuance=createCertificateIssuance({store,surveyCourse,findOne,all,activeMembers:rows=>membersForRows(rows,{activeOnly:true}),
+    joinedLater,prepare,discard,refuse,send,render:renderCertificate});
+  async function ordinaryCertificate({courseId,user,access}){
+    if(courseId===surveyCourse||isStaff(user)||!access.enrollment)return null;
+    const ready=await findOne('certificates',{courseId,userId:user.id,status:'ready'});
+    return ready?{downloadUrl:`/api/courses/${courseId}/certificate`}:null;
+  }
+  async function upload(req,res,course,userId) {
+    const courseId=course.id,pilot=courseId===surveyCourse;
+    if(!pilot&&course.status!=='published')refuse(409,'certificate_course_unpublished','publish the course before issuing a certificate');
     const input=await bodyJson(req,4*1024*1024+4096);
-    const [enrollment,member]=await Promise.all([findOne('enrollments',{courseId,userId}),store.getMembers([userId]).then(rows=>rows[0])]);
+    if(!pilot&&input.approved!==true)refuse(400,'certificate_approval_required','confirm completion for this participant before uploading a certificate');
+    const [enrollment,member]=await Promise.all([findOne('enrollments',{courseId,userId}),store.getMembers([userId],{activeOnly:!pilot}).then(rows=>rows[0])]);
     if(!enrollment||!member||member.staff||joinedLater(courseId,enrollment))refuse(404,'certificate_not_enrolled','this person is not a participant of this course');
     if(input.mime!=='application/pdf'||typeof input.data!=='string')refuse(400,'certificate_invalid','a PDF of up to 3 MB is required');
     let file;
     try { file=decodeAttachment({name:'certificado.pdf',mime:'application/pdf',data:input.data}); }
     catch(error) { if(!error.status||error.status>=500)throw error;refuse(error.status===413?413:400,'certificate_invalid','a PDF of up to 3 MB is required'); }
-    const id=newId(),certificate={id,courseId,userId,size:file.size,storagePath:`certificates/${courseId}/${userId}/${id}.pdf`,status:'pending',createdAt:stamp()};
-    await store.insert('certificates',certificate);
-    // A failed response does not prove Storage rejected the object: the row stays 'pending' for reconciliation.
-    await store.putCertificate(certificate,file.bytes);
+    const certificate=await prepare(courseId,userId,file.bytes),id=certificate.id;
     /* A replacement is a new row and a new object. The old one leaves 'ready' first, so the partial unique index
        (one ready certificate per person) only refuses a concurrent replacement, which then cleans up after itself. */
     const replaced=[];let ready=null;
@@ -298,13 +313,20 @@ export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRow
   }
   async function route({req,res,url,user,access,courseId,suffix,adminPath}) {
     const method=req.method,certificatePath=adminPath?suffix.match(/^\/certificates\/([^/]+)$/):null,exportType=adminPath&&suffix==='/export'&&method==='GET'?url.searchParams.get('type'):null;
+    if(adminPath&&suffix==='/certificates'&&method==='GET'){
+      send(res,200,await issuance.roster(access.course));return true;
+    }
+    const issuing=adminPath&&method==='POST'?suffix.match(/^\/certificates\/([^/]+)\/issue$/):null;
+    if(issuing){
+      await issuance.issue({course:access.course,userId:identifier(issuing[1]),input:await bodyJson(req),res});return true;
+    }
     // Member and organiser routes are claimed only on their own prefix, so a member path never reaches organiser data.
     const name=!adminPath?(suffix==='/survey/start'&&method==='PUT'?'start':suffix==='/survey'&&method==='POST'?'submit':suffix==='/certificate'&&method==='GET'?'download':null)
       :suffix==='/final-survey'&&method==='GET'?'status':['survey','survey-status'].includes(exportType)?exportType
         :certificatePath&&['GET','PUT','DELETE'].includes(method)?`certificate-${method}`:null;
     if(!name)return false;
     if(adminPath&&!isStaff(user))refuse(403,'admin_required','administrator access required');
-    if(courseId!==surveyCourse)refuse(404,'survey_unavailable','survey unavailable');
+    if(courseId!==surveyCourse&&!['download','certificate-GET','certificate-PUT','certificate-DELETE'].includes(name))refuse(404,'survey_unavailable','survey unavailable');
     if(['start','submit'].includes(name)) {
       if(isStaff(user)||!access.enrollment||joinedLater(courseId,access.enrollment))refuse(403,'survey_unavailable','the survey is for enrolled participants');
       if(!isOpen())refuse(403,'survey_closed','the survey is closed');
@@ -335,13 +357,14 @@ export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRow
       send(res,200,{finalSurvey:await participantState(user,access,saved,await findOne('certificates',{...filters,status:'ready'}))});return true;
     }
     if(name==='download') {
-      // Only the viewer's own file: there is no user parameter, and it needs their own submitted response.
+      // The viewer's enrollment is checked on every download. The survey course also requires a submitted response.
+      if(!access.enrollment||isStaff(user)||(courseId===surveyCourse&&joinedLater(courseId,access.enrollment)))refuse(404,'certificate_unavailable','certificate unavailable');
       const filters={courseId,userId:user.id};
-      const [row,certificate]=await Promise.all([findOne('surveys',filters),findOne('certificates',{...filters,status:'ready'})]);
-      if(!row?.submittedAt||!certificate)refuse(404,'certificate_unavailable','certificate unavailable');
+      const [row,certificate]=await Promise.all([courseId===surveyCourse?findOne('surveys',filters):null,findOne('certificates',{...filters,status:'ready'})]);
+      if((courseId===surveyCourse&&!row?.submittedAt)||!certificate)refuse(404,'certificate_unavailable','certificate unavailable');
       const budget=isStaff(user)?{ok:true}:downloads.take(`download:${user.id}`,certificate.size);
       if(!budget.ok){send(res,429,{error:'download limit reached; try again later',code:'download_rate'},{'Retry-After':String(budget.retryAfter)});return true;}
-      await sendPdf(res,certificate);return true;
+      await sendPdf(res,certificate,courseId===surveyCourse?config.certificateFilename:'certificado.pdf');return true;
     }
     if(name==='status') {
       // One read of the course's rows: the counts come from the same roster.
@@ -352,10 +375,10 @@ export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRow
     if(name==='survey'){sendCsv(res,'encuesta-final-respuestas',surveyResponsesCsv(await roster(courseId)));return true;}
     if(name==='survey-status'){sendCsv(res,'encuesta-final-estado',surveyStatusCsv(await roster(courseId,{forms:true})));return true;}
     const userId=identifier(certificatePath[1]);
-    if(method==='PUT'){await upload(req,res,courseId,userId);return true;}
+    if(method==='PUT'){await upload(req,res,access.course,userId);return true;}
     const current=await findOne('certificates',{courseId,userId,status:'ready'});
     if(!current)refuse(404,'certificate_unavailable','certificate unavailable');
-    if(method==='GET'){await sendPdf(res,current,personalFilename(config.certificateFilename,(await store.getMembers([userId]))[0]?.name,userId));return true;}
+    if(method==='GET'){await sendPdf(res,current,personalFilename(courseId===surveyCourse?config.certificateFilename:'certificado.pdf',(await store.getMembers([userId]))[0]?.name,userId));return true;}
     if(!await store.update('certificates',{id:current.id,status:'ready'},{status:'deleting'}))refuse(409,'certificate_changed','the certificate changed; reload and try again');
     // A Storage failure answers 502 and leaves the row 'deleting': never downloadable, finished by reconciliation.
     await store.deleteCertificate(current);await store.remove('certificates',{id:current.id,status:'deleting'});
@@ -368,5 +391,5 @@ export function createFinalSurvey({store,send,bodyJson,findOne,all,membersForRow
       send(context.res,error.status,{error:error.message,code:error.code,...(error.field?{field:error.field}:{})});return true;
     }
   }
-  return {snapshot,handle};
+  return {snapshot,ordinaryCertificate,handle};
 }

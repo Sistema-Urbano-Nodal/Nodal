@@ -112,6 +112,6 @@ test('the profile and the console reserve the badge in their markup, with no sep
   assert.match(dashboard, /<span id="sheetRole">—<\/span><span id="sheetFounder" hidden><\/span>\s*<\/p>/);
   for (const [name, html] of [['profile.html', profile], ['dashboard.html', dashboard]]) {
     assert.match(html, /href="courses\.css\?v=20261116a"/, `${name} loads the badge styles`);
-    assert.match(html, /src="pilot\.js\?v=20261116a"/, `${name} loads the badge helper`);
+    assert.match(html, /src="pilot\.js\?v=20261123b"/, `${name} loads the badge helper`);
   }
 });

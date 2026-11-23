@@ -161,3 +161,13 @@ test('Supabase survey rows, unique update conflicts and organiser flags',async()
  assert.deepEqual(await store.getMembers(['a','b']),[{id:'a',name:'Ana',email:'ana@example.test',staff:true},{id:'b',name:null,email:'b@example.test',staff:false}]);
  assert.equal(calls[2].query.select,'id,full_name,email,app_role');
 });
+
+test('certificate issuance checks only active named profiles, while ordinary roster reads keep their existing contract',async()=>{
+ const calls=[];
+ const store=createCourseStore({clients:{admin:{rest:async(table,{query})=>{
+   calls.push({table,query});return {rows:[],contentRange:'*/0'};
+ }}}});
+ await store.getMembers(['a','b'],{activeOnly:true});await store.getMembers(['a','b']);
+ assert.equal(calls[0].table,'profiles');assert.equal(calls[0].query.account_status,'eq.active');
+ assert.equal(calls[0].query.id,'in.(a,b)');assert.equal(calls[1].query.account_status,undefined);
+});

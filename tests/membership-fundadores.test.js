@@ -8,6 +8,7 @@ import { createDatabase, createUser, deleteUserById } from '../server/db.js';
 import { createSession } from '../server/auth.js';
 import { createRepository } from '../server/repository.js';
 import { createSupabaseRepository } from '../server/supabase.js';
+import { FIIU_COURSE_PERK } from '../server/course-perks.js';
 import { FUNDADORES_2027 } from '../server/membership-offer.js';
 
 /* The Founder Membership 2027 (docs/superpowers/specs/2026-10-21-nodal-fundadores-design.md). Every app here gets its own
@@ -454,4 +455,22 @@ test('the Supabase table is server-only contract evidence that outlives the prof
   assert.ok(statements.includes('GRANT SELECT,INSERT ON TABLE public.membership_acceptances TO service_role'));
   assert.ok(!statements.some((statement) => /^CREATE POLICY/i.test(statement)), 'no client policy');
   assert.equal(statements.length, 8, 'nothing else');
+});
+
+test('both Founder payment links leave private learning content locked until staff reconciles the actual payment',async t=>{
+ const {base,db,member}=await boot(t,{pilotMode:true});
+ const {user,cookie}=member(),staff=member('Equipo','staff@example.test','admin');
+ const courseId=FIIU_COURSE_PERK.courseId,moduleId='11111111-1111-4111-8111-111111111111';
+ const at='2026-10-01T12:00:00.000Z';
+ db.prepare("INSERT INTO pilot_courses(id,title,status,enrollment_open,created_at,updated_at) VALUES(?,?,'published',0,?,?)").run(courseId,'Founder course',at,at);
+ db.prepare("INSERT INTO course_modules(id,course_id,title,status,position,instructions,created_at,updated_at) VALUES(?,?,?,'published',1,?,?,?)").run(moduleId,courseId,'Session','Private course material',at,at);
+ db.prepare('INSERT INTO course_intakes(id,course_id,user_id,answers,updated_at) VALUES(?,?,?,?,?)').run('intake',courseId,user.id,'{}',at);
+ const material=()=>fetch(base+'/api/courses/'+courseId+'/modules/'+moduleId,{headers:{Cookie:cookie}});
+ for(const [option,url] of [['once',ONCE],['installments',TWICE]]){
+   const result=await accept(base,cookie,valid(option));assert.equal(result.status,201);assert.equal((await result.json()).url,url);
+   const returned=await fetch(base+'/payments.html?status=approved',{headers:{Cookie:cookie}});assert.equal(returned.status,200);
+   assert.equal((await material()).status,403);
+ }
+ const grant=await fetch(base+'/api/admin/courses/'+courseId+'/participants',{method:'POST',headers:{Cookie:staff.cookie,Origin:base,'Content-Type':'application/json'},body:JSON.stringify({email:user.email})});
+ assert.equal(grant.status,201);assert.equal((await material()).status,200);
 });

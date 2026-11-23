@@ -27,6 +27,9 @@ function translate(){document.querySelectorAll('[data-pilot-text]').forEach(n=>{
 function translatedError(key,statusCode,fieldKey){return Object.assign(new Error(t(key)),{translationKey:key,status:statusCode,fieldKey});}
 function requestError(data,statusCode){
   const codes={participant_not_found:'participantNotFound',participant_unconfirmed:'participantUnconfirmed',participant_unavailable:'participantUnavailable',invitation_unavailable:'invitationUnavailable',invitation_uncertain:'invitationUncertain',invitation_rate:'tooManyRequests',invitation_email:'participantEmailError',participant_course_unavailable:'participantCourseUnavailable',participant_enrollment_closed:'participantEnrollmentClosed',enrollment_closed:'closed',feedback_limit:'feedbackLimit',survey_unavailable:'surveyUnavailable',survey_closed:'surveyClosed',survey_submitted:'surveyAlreadySent',survey_locked:'surveyLocked',survey_not_started:'surveyNotStarted',survey_changed:'surveyChanged',survey_invalid:'surveyInvalid',certificate_unavailable:'certificateUnavailable',certificate_invalid:'certificateInvalid',certificate_not_enrolled:'certificateNotEnrolled',certificate_changed:'certificateChanged'};
+  Object.assign(codes,{certificate_text_unsupported:'certificateTextUnsupported',certificate_name_missing:'certificateNameMissing',
+    certificate_survey_required:'certificateSurveyRequired',certificate_course_unpublished:'certificatePublishedOnly',certificate_approval_required:'certificateApprovalRequired'});
+  codes.participant_independent_access='independentSeat';
   // A refused survey answer names its question (`field`, a question id), never what was written.
   if(codes[data.code])return Object.assign(translatedError(codes[data.code],statusCode),{code:data.code,...(typeof data.field==='string'?{field:data.field}:{})});
   const detail=String(data.error||'');

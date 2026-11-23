@@ -418,11 +418,12 @@ const people=[
 ];
 const statusList=(patch={})=>({closesAt:FINAL_SURVEY.closesAt,lastDay:'2026-10-23',open:true,contactEmail:FINAL_SURVEY.contactEmail,total:4,answered:1,started:1,certificates:1,participants:people,...patch});
 const pdf=(name,stamp=1,body='JVBERi0xLjQK')=>({name,size:200,lastModified:stamp,type:'application/pdf',body});
-function organiser({finalSurvey=open({preview:true}),write,list=()=>statusList(),search=''}={}){
+function organiser({finalSurvey=open({preview:true}),write,list=()=>statusList(),roster,search=''}={}){
  const h=harness(async(path,opts)=>{
   if(opts?.method){const reply=await write?.(path,opts,JSON.parse(opts.body||'{}'));return reply??{certificate:{id:'new'},replaced:false};}
   if(path==='/api/admin/courses')return{courses:[course]};
   if(path.endsWith('/report'))return{summary:{enrolled:4},participants:[],feedback:[],invitations:[]};
+  if(path.endsWith('/certificates')&&roster)return roster();
   if(path.endsWith('/final-survey'))return list();
   return{course,modules:[],...(finalSurvey?{finalSurvey}:{})};
  },{page:'teaching',search});
@@ -430,6 +431,57 @@ function organiser({finalSurvey=open({preview:true}),write,list=()=>statusList()
  h.run('teaching');return{...h,pane:()=>h.ctx.document.getElementById('staff-pane-finalSurvey'),tab:()=>h.ctx.document.getElementById('staff-tab-finalSurvey')};
 }
 const writes=h=>h.requests.filter(r=>r.method);
+test('ordinary custom PDF replacement only proceeds after explicit named approval',async()=>{
+ const roster={rule:'staff',participants:[{userId:'u-ana',name:'Ana Pérez',eligible:true,issued:true}]};
+ const h=organiser({finalSurvey:null,roster:()=>roster,search:'?course=c1&tab=courseCertificates'});
+ await flush();
+ const pane=h.ctx.document.getElementById('staff-pane-courseCertificates');
+ const picker=()=>descendants(pane).find(n=>n.tagName==='input'&&n.type==='file');
+ assert.ok(picker());picker().files=[pdf('ajuste.pdf')];h.ctx.confirm=()=>false;
+ await picker().listeners.change();assert.equal(writes(h).length,0);
+ picker().files=[pdf('ajuste.pdf')];let prompt;h.ctx.confirm=text=>{prompt=text;return true;};await picker().listeners.change();
+ assert.match(prompt,/Ana Pérez/);assert.match(prompt,/replace/i);
+ assert.deepEqual(writes(h).map(({method,path,body})=>({method,path,body})),[{method:'PUT',path:'/api/admin/courses/c1/certificates/u-ana',body:{mime:'application/pdf',data:'JVBERi0xLjQK',approved:true}}]);
+});
+
+test('ordinary certificates are confirmed per participant and open the existing private PDF after issue', async () => {
+ const roster={rule:'staff',participants:[
+  {userId:'u-ana',name:'Ana Pérez',eligible:true,issued:false},
+  {userId:'u-bruno',name:'Bruno Díaz',eligible:false,issued:false},
+  {userId:'u-carla',name:'Carla Soto',eligible:true,issued:true},
+ ]};
+ const h=organiser({finalSurvey:null,roster:()=>structuredClone(roster),write:()=>{
+  roster.participants[0].issued=true;return {created:true,certificate:{id:'cert-1'}};
+ }});
+ await flush();const tab=h.ctx.document.getElementById('staff-tab-courseCertificates');
+ assert.ok(tab);await tab.listeners.click();await flush();
+ const pane=h.ctx.document.getElementById('staff-pane-courseCertificates');
+ const issue=()=>findKey(rowOf(pane,'Ana Pérez'),'issueCertificate');
+ let prompt='';h.ctx.confirm=wording=>{prompt=wording;return false;};
+ await issue().listeners.click();assert.match(prompt,/Ana Pérez/);assert.equal(writes(h).length,0);
+ assert.equal(findKey(rowOf(pane,'Bruno Díaz'),'issueCertificate'),undefined);
+ assert.equal(findKey(rowOf(pane,'Carla Soto'),'issueCertificate'),undefined);
+ h.ctx.confirm=()=>true;await issue().listeners.click();await flush();
+ assert.deepEqual(writes(h).map(({path,body})=>({path,body})),[{path:'/api/admin/courses/c1/certificates/u-ana/issue',body:{approved:true}}]);
+ assert.equal(issue(),undefined);
+ assert.ok(descendants(rowOf(pane,'Ana Pérez')).some(n=>n.href==='/api/admin/courses/c1/certificates/u-ana'));
+ h.lang('pt');assert.match(visible(pane),/Certificados/);
+});
+
+test('ordinary course certificate becomes downloadable without replacing the intake form or exposing another user', async () => {
+ let ready=false;const data=()=>coursePayload(null,{intake:null,...(ready?{certificate:{downloadUrl:'/api/courses/c1/certificate'}}:{})});
+ const h=harness(async()=>data());h.run('courses');await flush();
+ const formBefore=descendants(h.body).find(n=>n.tagName==='form');
+ assert.ok(formBefore);
+ assert.equal(descendants(h.body).some(n=>n.href==='/api/courses/c1/certificate'),false);
+ const refresh=findKey(h.body,'checkCourseCertificate');assert.ok(refresh);
+ ready=true;await refresh.listeners.click();await flush();
+ assert.equal(descendants(h.body).find(n=>n.tagName==='form'),formBefore);
+ const link=descendants(h.body).find(n=>n.href==='/api/courses/c1/certificate');assert.ok(link);
+ h.lang('es');assert.match(link.textContent,/Descargar/);
+ const nonmember=harness(async()=>coursePayload(null,{enrollment:null,intake:null,certificate:{downloadUrl:'/api/courses/c1/certificate'}}));nonmember.run('courses');await flush();
+ assert.equal(descendants(nonmember.body).some(n=>n.href==='/api/courses/c1/certificate'),false);
+});
 const rowOf=(pane,name)=>descendants(pane).find(n=>n.tagName==='tr'&&content(n).includes(name));
 
 test('courses without the survey get no survey tab and never read the survey list',async()=>{
@@ -439,7 +491,7 @@ test('courses without the survey get no survey tab and never read the survey lis
 
 test('the survey tab sits after Participants, loads on first opening and lists only participants with their status',async()=>{
  const h=organiser();await flush();
- const tabs=descendants(h.body).find(n=>n.className==='pilot-tabs');assert.deepEqual(tabs.children.map(n=>n.id),['staff-tab-responses','staff-tab-participants','staff-tab-finalSurvey','staff-tab-courseSetup']);
+ const tabs=descendants(h.body).find(n=>n.className==='pilot-tabs');assert.deepEqual(tabs.children.map(n=>n.id),['staff-tab-responses','staff-tab-participants','staff-tab-finalSurvey','staff-tab-courseCertificates','staff-tab-courseSetup']);
  assert.equal(h.pane().hidden,true);assert.equal(h.requests.some(r=>r.path.includes('final-survey')),false,'nothing is read before the tab opens');
  h.tab().listeners.click();await flush();h.tab().listeners.click();await flush();
  assert.equal(h.requests.filter(r=>r.path==='/api/admin/courses/c1/final-survey').length,1);assert.equal(h.pane().hidden,false);

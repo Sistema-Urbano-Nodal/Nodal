@@ -42,7 +42,8 @@
   // The messages that say something went wrong; the others say what is happening.
   const ERRORS = new Set(['y.fund.error', 'y.fund.tooMany', 'y.fund.unavailable']);
   // leaving: the fallback armed once the page should be on its way to Mercado Pago (see the submit handler).
-  let offer = nothing('loading'), notice = '', busy = false, leaving = null;
+  let openedCheckout = Boolean(window.history?.state?.nodalFounderCheckout);
+  let offer = nothing('loading'), notice = openedCheckout ? 'y.fund.returned' : '', busy = false, leaving = null;
 
   // What the page may sell from an answer: only this page's terms version, with an offered option and the contact email.
   function read(data) {
@@ -119,7 +120,7 @@
     if (leaving) { clearTimeout(leaving.timer); document.removeEventListener('visibilitychange', leaving.back); leaving = null; }
     untick();
     busy = false;
-    notice = '';
+    notice = openedCheckout ? 'y.fund.returned' : '';
     lock(false);
     render();
   }
@@ -186,6 +187,9 @@
     // The server only answers with Mercado Pago links; the page still follows nothing but https. The button stays off while the browser leaves.
     const url = status === 201 ? httpsUrl(data?.url) : null;
     if (url) {
+      openedCheckout = true;
+      // Back can reload this history entry or restore it from cache. The marker records only that checkout opened.
+      try { window.history.replaceState({ ...window.history.state, nodalFounderCheckout: true }, ''); } catch { /* private browser history may be unavailable */ }
       location.assign(url);
       // A page that stays (the Mercado Pago app took the link, or the member stopped the load) starts afresh once it is
       // shown again, or after a while; a page that leaves takes this with it.

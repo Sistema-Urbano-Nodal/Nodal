@@ -38,7 +38,7 @@ const findKey=(node,key)=>descendants(node).find(n=>n.dataset.pilotText===key);
 const byName=(node,name)=>descendants(node).find(n=>n.name===name);
 const participantForm=h=>descendants(h.body).find(n=>n.className==='pilot-form pilot-participant-form');
 function teachingHarness(write,{invitations=[],courses=[course],participants=[],perk=false}={}){
- const h=harness((path,options)=>options?.method==='POST'?write(path,JSON.parse(options.body)):path==='/api/admin/courses'?{courses}:path.endsWith('/report')?{summary:{enrolled:participants.length},participants,feedback:[],invitations}:{course:courses.find(c=>path.endsWith('/'+c.id))||course,modules:[],...(perk?{perkCourse:true}:{})},{page:'teaching'});h.run('teaching');return h;
+ const h=harness((path,options)=>['POST','PATCH','DELETE'].includes(options?.method)?write(path,options.body?JSON.parse(options.body):undefined):path==='/api/admin/courses'?{courses}:path.endsWith('/report')?{summary:{enrolled:participants.length},participants,feedback:[],invitations}:{course:courses.find(c=>path.endsWith('/'+c.id))||course,modules:[],...(perk?{perkCourse:true}:{})},{page:'teaching'});h.run('teaching');return h;
 }
 test('adding a participant performs only explicit enrollment and preserves translated success after refresh',async()=>{
  const h=teachingHarness(()=>({result:'enrolled',participant:{id:'u1'}}));await flush();h.ctx.document.getElementById('staff-tab-participants').listeners.click();const form=participantForm(h);assert.notEqual(form.parent.open,true,'the add panel starts closed');byName(form,'email').value=' person@example.test ';await form.listeners.submit({preventDefault(){}});assert.equal(h.requests.filter(r=>r.method==='POST').length,1);assert.equal(h.requests.find(r=>r.method==='POST').path,'/api/admin/courses/c1/participants');assert.deepEqual(h.requests.find(r=>r.method==='POST').body,{email:'person@example.test'});assert.equal(h.ctx.document.getElementById('staff-pane-participants').hidden,false);assert.match(content(h.body),/Participant added with student access/);h.lang('pt');assert.match(content(h.body),/Participante adicionado como estudante/);
@@ -289,4 +289,25 @@ test('the participants table marks each Founder member with the small badge afte
  assert.equal(badges(people[0])[0].textContent,'Founder');assert.equal(badges(people[0])[0].title,'Founder · part of the Nodal founding community');
  assert.deepEqual([badges(people[1]).length,badges(people[2]).length],[0,0],'no badge without the flag');
  h.lang('es');assert.equal(badges(people[0])[0].title,'Founder · parte de la comunidad fundadora de Nodal');assert.equal(badges(people[0])[0].textContent,'Founder');
+});
+
+test('staff can confirm a single legacy seat, then withdraw the confirmed paid seat without changing another participant',async()=>{
+ const participant={name:'Ana',email:'ana@example.test',group:'october',enrolledAt:'2026-11-03',reconciliation:{confirmed:false,enrollmentId:'seat-1'}};
+ const participants=[participant,{...participant,name:'Ben',reconciliation:null}];
+ const options={courses:[{...course,enrollmentOpen:false}],participants,perk:true};
+ const h=teachingHarness((_path,body)=>{
+   if(body?.verified){participant.reconciliation.confirmed=true;return {result:'reconciled'};}
+   participants.shift();return {result:'withdrawn'};
+ },options);
+ await flush();const pane=()=>h.ctx.document.getElementById('staff-pane-participants');
+ let allow=false;h.ctx.confirm=()=>allow;
+ await findKey(pane(),'reconcileSeat').listeners.click();
+ assert.equal(h.requests.filter(r=>r.method==='PATCH').length,0);
+ allow=true;await findKey(pane(),'reconcileSeat').listeners.click();await flush();
+ assert.equal(h.requests.find(r=>r.method==='PATCH').path,'/api/admin/courses/c1/participants/seat-1');
+ assert.equal(findKey(pane(),'reconcileSeat'),undefined);
+ await findKey(pane(),'withdrawSeat').listeners.click();await flush();
+ assert.equal(h.requests.find(r=>r.method==='DELETE').path,'/api/admin/courses/c1/participants/seat-1');
+ assert.equal(findKey(pane(),'withdrawSeat'),undefined);
+ assert.match(content(pane()),/Ben/);
 });

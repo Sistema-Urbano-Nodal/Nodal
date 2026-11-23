@@ -10,7 +10,7 @@ import {readdir} from 'node:fs/promises';
 // NODAL_COURSE_QUOTA_TEST_DATABASE_URL=postgresql://.../nodal_course_quota_test_run
 // node --test tests/courses-upload-quota-postgres.test.js
 const databaseUrl=process.env.NODAL_COURSE_QUOTA_TEST_DATABASE_URL;
-test('PostgreSQL quota serializes RPC and legacy INSERT at READ COMMITTED and REPEATABLE READ', {skip:!databaseUrl,timeout:120000},async()=>{
+test('PostgreSQL quota serializes RPC and legacy INSERT at READ COMMITTED and REPEATABLE READ', {skip:!databaseUrl,timeout:120000},async t=>{
  const url=new URL(databaseUrl);
  assert.ok(['127.0.0.1','localhost','[::1]'].includes(url.hostname),'only a local disposable PostgreSQL server is permitted');
  assert.match(url.pathname,/^\/nodal_course_quota_test_[a-z0-9_]+$/);
@@ -39,6 +39,19 @@ test('PostgreSQL quota serializes RPC and legacy INSERT at READ COMMITTED and RE
  await apply('../supabase/migrations/20261006004500_course_final_survey.sql');
  for(const file of ['course-postgres-check.sql','course-post-owner-edit-check.sql','course-upload-quota-check.sql','course-final-survey-check.sql'])await apply('./fixtures/'+file);
 
+ await t.test('paid-access migration preserves existing enrollments and constrains the source of future access',async()=>{
+  const person=randomUUID(),course=randomUUID(),seat=randomUUID();
+  await sql(`INSERT INTO auth.users VALUES('${person}','certificate-member@example.test');
+   INSERT INTO profiles(id,email) VALUES('${person}','certificate-member@example.test');
+   INSERT INTO pilot_courses(id,title,status,created_at,updated_at) VALUES('${course}','Members','published','2026-09-01','2026-09-01');
+   INSERT INTO course_enrollments(id,course_id,user_id,created_at) VALUES('${seat}','${course}','${person}','2026-09-01');`);
+  await apply('../supabase/migrations/20261123000000_course_founder_grant.sql');
+  assert.equal(await sql(`SELECT access_basis IS NULL FROM course_enrollments WHERE id='${seat}'`),'t');
+  for(const basis of ['independent','founder']){
+   assert.equal(await sql(`UPDATE course_enrollments SET access_basis='${basis}' WHERE id='${seat}' RETURNING access_basis`),basis);
+  }
+  await assert.rejects(sql(`UPDATE course_enrollments SET access_basis='unrecognized' WHERE id='${seat}'`),error=>error.stderr.includes('23514'));
+ });
  const waitFor=async query=>{
   const deadline=Date.now()+10000;
   do {const value=await sql(query);if(value)return value;await new Promise(resolve=>setTimeout(resolve,20));}while(Date.now()<deadline);

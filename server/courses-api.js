@@ -80,7 +80,7 @@ export async function courseSummary(store,courseId) {
 }
 
 // finalSurvey and clock exist for tests: the survey's course and deadline are fixed in production.
-export function createCourseApi({store,userRepository,sameOrigin,send=respond,reportAnswer=async()=>false,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,downloads=createByteBudget(downloadLimits),log=console.error,finalSurvey=FINAL_SURVEY,clock=Date.now,perks=createCoursePerks()}={}) {
+export function createCourseApi({store,userRepository,sameOrigin,send=respond,reportAnswer=async()=>false,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,downloads=createByteBudget(downloadLimits),log=console.error,finalSurvey=FINAL_SURVEY,clock=Date.now,renderCertificate,perks=createCoursePerks()}={}) {
   const participants=createCourseParticipants({store,userRepository});
   const findOne=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
   const all=(name,filters={},max=Infinity)=>allRows(store,name,filters,max);
@@ -194,7 +194,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
       } catch(error) { log('course attachment cleanup failed:',id,errorText(error)); }
     }
   }
-  const membersForRows=rows=>membersOf(store,rows);
+  const membersForRows=(rows,options)=>membersOf(store,rows,options);
   // The screens list the newest 500 responses, still in date order, so a new rating always shows; only the CSV exports read every row.
   const newestFeedback=async filters=>(await store.find('feedback',filters,{limit:500,desc:true})).reverse();
   async function feedbackForStaff(rows,members=undefined) {
@@ -221,7 +221,8 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     const participants=enrollments.map(enrollment=>{
       const user=members.get(enrollment.userId);
       return {userId:enrollment.userId,name:user?.name??'',email:user?.email??'',founder:founders.has(enrollment.userId),enrolledAt:enrollment.createdAt,intake:answers.get(enrollment.userId)??null,
-        ...(grouped?{group:perks.inSeptemberGroup(enrollment)?'september':'october'}:{})};
+        ...(grouped?{group:perks.inSeptemberGroup(enrollment)?'september':'october'}:{}),
+        ...(grouped && !perks.inSeptemberGroup(enrollment) && enrollment.accessBasis!=='independent' ? {reconciliation:{enrollmentId:enrollment.id,confirmed:enrollment.accessBasis==='founder'}} : {})};
     });
     const livePosts=posts.filter(post=>!post.deletedAt&&post.userId);
     return {
@@ -231,7 +232,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     };
   }
   function sendCsv(res,name,rows) { send(res,200,csv(rows),{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="${name}.csv"`}); }
-  const survey=createFinalSurvey({store,send,bodyJson,findOne,all,membersForRows,downloads,isStaff,sendCsv,config:finalSurvey,clock,log,perks});
+  const survey=createFinalSurvey({store,send,bodyJson,findOne,all,membersForRows,downloads,isStaff,sendCsv,config:finalSurvey,clock,log,renderCertificate,perks});
 
   return async function handle({req,res,url,user}) {
     const path=url.pathname;
@@ -309,7 +310,10 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
       }
       // An id never names other bytes, so after the access checks above the browser may keep the file privately and
       // revalidate with its id: a 304 then costs no Storage read.
-      const etag=`"${attachment.id.toLowerCase()}"`,caching={'Cache-Control':'private, max-age=86400, immutable',ETag:etag,Vary:'Cookie'};
+      const etag=`"${attachment.id.toLowerCase()}"`;
+      // Founder seats can be withdrawn between opens. Revalidate their files against the current enrollment.
+      const cacheControl=perks.applies(attachment.courseId)?'private, no-cache':'private, max-age=86400, immutable';
+      const caching={'Cache-Control':cacheControl,ETag:etag,Vary:'Cookie'};
       if(matchesEtag(req.headers['if-none-match'],etag)){send(res,304,'',caching);return true;}
       // The teaching team opens every participant's files, often in one sitting (a class's assignments easily pass
       // 64 MB in ten minutes), so staff accounts are not budgeted.
@@ -341,11 +345,36 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     const prefetchedModule=moduleMatch?Promise.resolve().then(()=>findOne('modules',{id:identifier(moduleMatch[1]),courseId})):null;
     prefetchedModule?.catch(()=>{});
     const access=await courseAccess(courseId,user);
+    const founderSeat=adminPath && ['PATCH','DELETE'].includes(req.method) && suffix.match(/^\/participants\/([^/]+)$/);
+    if(founderSeat) {
+      if(!perks.applies(courseId)||access.course.enrollmentOpen)fail('only a closed Founder course supports this action',409);
+      const id=identifier(founderSeat[1]),seat=await findOne('enrollments',{id,courseId});
+      if(!seat) {
+        if(req.method==='PATCH')fail('enrollment unavailable',404);
+        send(res,200,{result:'withdrawn'});return true;
+      }
+      if(seat.accessBasis==='independent' || perks.inSeptemberGroup(seat) || await perks.fiiuEligible({id:seat.userId})) {
+        send(res,409,{code:'participant_independent_access'});return true;
+      }
+      if(req.method==='PATCH') {
+        const input=await bodyJson(req);
+        if(input.verified!==true)fail('confirm the payment, acceptance and source of course access',400);
+        if(seat.accessBasis!=='founder') {
+          const updated=await store.update('enrollments',{id,courseId,accessBasis:null},{accessBasis:'founder'});
+          // Another staff tab may have confirmed this very seat. A deleted or replaced seat still requires a fresh review.
+          if(!updated && (await findOne('enrollments',{id,courseId}))?.accessBasis!=='founder')fail('enrollment changed',409);
+        }
+        send(res,200,{result:'reconciled'});return true;
+      }
+      if(seat.accessBasis!=='founder'){send(res,409,{code:'participant_reconciliation_required'});return true;}
+      await store.remove('enrollments',{id,courseId,accessBasis:'founder'});
+      send(res,200,{result:'withdrawn'});return true;
+    }
     if(adminPath&&['/participants','/invitations'].includes(suffix)&&req.method==='POST') {
       const input=await bodyJson(req);
       try {
         // The perk course is closed to the public, but the team adds each Supporter who paid on Mercado Pago (docs/supporter-payments.md).
-        const result=suffix==='/participants'?await participants.add(access.course,input.email,{whileClosed:perks.applies(courseId)}):await participants.invite(access.course,input.email,user.id);
+        const result=suffix==='/participants'?await participants.add(access.course,input.email,{whileClosed:perks.applies(courseId),independentlyEligible:perks.fiiuEligible}):await participants.invite(access.course,input.email,user.id);
         send(res,result.result==='invited'?202:result.result==='enrolled'?201:200,result);
       } catch(error) {
         const expected=/^(participant|invitation)_[a-z_]+$/.test(error.code??''),code=expected?error.code:'participant_unavailable',status=error.status??503;
@@ -362,7 +391,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     // The final survey and certificates of one course (server/course-final-survey.js); false for anything else.
     if(await survey.handle({req,res,url,user,access,courseId,suffix,adminPath}))return true;
     if(!suffix&&req.method==='GET') {
-      let [modules,finalSurvey,join]=await Promise.all([store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:101,order:['position','sessionDate','id']}),survey.snapshot({courseId,user,access}),access.enrollment?null:joinFor(access.course,user)]);
+      let [modules,finalSurvey,certificate,join]=await Promise.all([store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:101,order:['position','sessionDate','id']}),survey.snapshot({courseId,user,access}),survey.ordinaryCertificate({courseId,user,access}),access.enrollment?null:joinFor(access.course,user)]);
       if(!isStaff(user)&&(!access.enrollment||!access.intake)) modules=modules.map(({id,kind,title,position,sessionDate,status,translations={}})=>({
         id,kind,title,position,sessionDate,status,
         // Preview only localized titles; gated teaching content stays private.
@@ -371,7 +400,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
       else if(newJoinerView(courseId,user,access))modules=modules.map(withoutSeptemberItems);
       // perkCourse marks the course with a September group: the teaching workspace offers the "September group only"
       // tick, and the conversation shows the sharedSince note.
-      send(res,200,{...access,modules,isAdmin:isStaff(user),...(finalSurvey?{finalSurvey}:{}),...(join?{join}:{}),...(perks.applies(courseId)?{perkCourse:true}:{})});return true;
+      send(res,200,{...access,modules,isAdmin:isStaff(user),...(finalSurvey?{finalSurvey}:{}),...(certificate?{certificate}:{}),...(join?{join}:{}),...(perks.applies(courseId)?{perkCourse:true}:{})});return true;
     }
     if(adminPath&&!suffix&&req.method==='PATCH') {
       const input=await bodyJson(req);
@@ -386,7 +415,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
       // retry, never a refusal.
       if(!access.course.enrollmentOpen&&!(perks.applies(courseId)&&await perks.fiiuEligible(user))){send(res,403,{error:'enrollment is closed',code:'enrollment_closed'});return true;}
       let enrollment;
-      try { enrollment=await store.insert('enrollments',{id:newId(),courseId,userId:user.id,createdAt:now()}); }
+      try { enrollment=await store.insert('enrollments',{id:newId(),courseId,userId:user.id,createdAt:now(),accessBasis:'independent'}); }
       catch(err) { if(err.status!==409)throw err;enrollment=await findOne('enrollments',{courseId,userId:user.id});if(!enrollment)throw err; }
       send(res,200,{enrollment:{...enrollment,intakeCompleted:Boolean(access.intake)}});return true;
     }

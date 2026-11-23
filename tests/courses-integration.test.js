@@ -37,6 +37,8 @@ test('real application protects pilot pages, disables checkout, exports and eras
   await call('/api/feedback','POST',{action:'assignment',rating:5,courseId:course.id,moduleId:module.id});
   // The pilot course is the final-survey course. Its routes follow the real deadline, so the response and the
   // certificate are seeded directly: this test must pass on any date.
+  // This historical cohort participant submitted the survey. The test's self-enrollment above uses the current clock.
+  await store.update('enrollments',{courseId:course.id,userId:member.id},{createdAt:'2026-09-01T12:00:00.000Z'});
   const stamp=new Date().toISOString(),certificateId=randomUUID();
   await store.insert('surveys',{id:randomUUID(),courseId:course.id,userId:member.id,answers:{overall:'buena',gender:'prefer_not',age:40,country:'PE'},submittedAt:stamp,createdAt:stamp,updatedAt:stamp});
   const certificate=await store.insert('certificates',{id:certificateId,courseId:course.id,userId:member.id,size:12,storagePath:`certificates/${course.id}/${member.id}/${certificateId}.pdf`,status:'ready',createdAt:stamp});

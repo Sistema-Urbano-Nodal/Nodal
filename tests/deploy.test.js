@@ -36,10 +36,11 @@ test('Vercel serves generated frontend assets before the Node serverless adapter
   assert.match(staticBuild, /styles\.css/);
   assert.match(staticBuild, /dashboard\.js/);
   assert.ok(!('runtime' in vercel.functions['api/index.js']), 'Node runtime should be configured through package.json engines, not functions.runtime');
-  assert.equal(typeof vercel.functions['api/index.js'].includeFiles, 'string');
-  assert.equal(vercel.functions['api/index.js'].includeFiles, 'web/pages/**');
-  assert.ok(!vercel.functions['api/index.js'].includeFiles.includes('tests/**'));
-  assert.ok(!vercel.functions['api/index.js'].includeFiles.includes('scripts/**'));
+  const serverFiles = vercel.functions['api/index.js'].includeFiles;
+  for (const file of ['web/pages/course.html', 'server/assets/certificates/template.pdf', 'server/assets/certificates/DejaVuSans-Bold.ttf']) {
+    assert.ok(path.matchesGlob(file, serverFiles) && existsSync(path.join(ROOT, file)), file);
+  }
+  for (const file of ['tests/deploy.test.js', 'scripts/seed-dev.js']) assert.ok(!path.matchesGlob(file, serverFiles), file);
   assert.ok(vercel.rewrites.some((route) => route.source === '/' && route.destination === '/api/index.js'));
   // Named captures become query parameters on Vercel, breaking the catalog's
   // strict validation and leaking into sign-in destinations.
@@ -320,7 +321,7 @@ test('Supabase Data API smoke exercises reads, constrained inserts, updates, and
 test('changed one-hour-cached clients use new URLs on every consuming page', () => {
   const pages = Object.fromEntries(['index.html', 'fundadores.html', 'opportunities.html', 'dashboard.html', 'messages.html', 'login.html', 'reset-password.html', 'payments.html', 'profile.html', 'admin.html', 'admin-home.html', 'course.html', 'courses.html', 'teaching.html', 'accept-invitation.html', 'fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'knowledge.html', 'resources.html']
     .map((name) => [name, readFileSync(path.join(ROOT, 'web', 'pages', name), 'utf8')]));
-  const pilot = { 'pilot-i18n.js': '20261116a', 'pilot.js': '20261116a', 'courses.css': '20261116a' };
+  const pilot = { 'pilot-i18n.js': '20261123b', 'pilot.js': '20261123b', 'courses.css': '20261116a' };
   const visit = { 'visit.js': '20261114b' };
   const festival = { 'fiiu.css': '20261116a', 'fiiu-ui.js': '20261116a' };
   const memberPages = ['dashboard', 'messages', 'profile', 'payments', 'courses', 'course', 'teaching', 'admin', 'admin-home', 'fiiu-admin', 'fiiu-qr'];
@@ -334,16 +335,16 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     'fundadores.html': { 'styles.css': '37', 'i18n.js': '20261116a', 'nav.js': '20261116a', 'locale.js': '20261009a', 'fundadores.js': '20261029a', 'fundadores.css': '20261029a' , ...visit },
     'opportunities.html': { 'catalog.css': '8', 'i18n.js': '20261116a', 'catalog.js': '8', ...pilot , ...visit },
     'messages.html': { 'messages.js': '20261119c', 'messages-i18n.js': '20261119c', 'messages.css': '20261119c' },
-    'dashboard.html': { 'buc.js': '20261116a', 'i18n-dashboard.js': '20261119c', 'i18n.js': '20261116a', ...festival, 'fiiu-live.js': '20261116a', 'fiiu-hubs.js': '20261116a', 'news-feed.js': '20261001b', 'dashboard.js': '20261119c', 'dashboard.css': '20261119c', 'location-check.js': '20261116a', ...pilot , ...visit },
+    'dashboard.html': { 'buc.js': '20261116a', 'i18n-dashboard.js': '20261122a', 'i18n.js': '20261116a', ...festival, 'fiiu-live.js': '20261116a', 'fiiu-hubs.js': '20261116a', 'news-feed.js': '20261001b', 'dashboard.js': '20261119c', 'dashboard.css': '20261119c', 'location-check.js': '20261116a', ...pilot , ...visit },
     'login.html': { 'i18n.js': '20261116a', 'auth.js': '20261116a', 'recovery-i18n.js': '20261022a' , ...visit },
     'reset-password.html': { 'i18n.js': '20261116a', 'recovery-i18n.js': '20261022a', 'password-recovery.js': '20261116a' },
-    'payments.html': { 'i18n-dashboard.js': '20261119c', 'i18n.js': '20261116a', 'payments.js': '20261116a', ...pilot , ...visit },
-    'profile.html': { 'i18n-dashboard.js': '20261119c', 'i18n.js': '20261116a', 'profile.js': '20261118e', 'styles.css': '20261118e', ...pilot , ...visit },
-    'admin.html': { 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n-dashboard.js': '20261119c', 'styles.css': '37', 'admin.css': '20261109a', 'admin.js': '20261116a', 'i18n.js': '20261116a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261116a', 'script.js': '18' , ...visit },
+    'payments.html': { 'i18n-dashboard.js': '20261122a', 'i18n.js': '20261116a', 'payments.js': '20261122a', ...pilot , ...visit },
+    'profile.html': { 'i18n-dashboard.js': '20261122a', 'i18n.js': '20261116a', 'profile.js': '20261118e', 'styles.css': '20261118e', ...pilot , ...visit },
+    'admin.html': { 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n-dashboard.js': '20261122a', 'styles.css': '37', 'admin.css': '20261109a', 'admin.js': '20261116a', 'i18n.js': '20261116a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261116a', 'script.js': '18' , ...visit },
     'admin-home.html': { 'admin-home.css': '20261117c', 'admin-home.js': '20261117c', 'styles.css': '37', 'admin.css': '20261109a', 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n.js': '20261116a', 'locale.css': '20260929a', 'locale.js': '20261009a', 'nav.js': '20261116a', 'script.js': '18', ...visit },
-    'course.html': { 'buc.js': '20261116a', 'i18n.js': '20261116a', 'courses.js': '20261116a', ...pilot , ...visit },
-    'courses.html': { 'buc.js': '20261116a', 'i18n.js': '20261116a', 'courses.js': '20261116a', ...pilot , ...visit },
-    'teaching.html': { 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n.js': '20261116a', 'teaching.js': '20261116a', ...pilot , ...visit },
+    'course.html': { 'buc.js': '20261116a', 'i18n.js': '20261116a', 'courses.js': '20261123b', ...pilot , ...visit },
+    'courses.html': { 'buc.js': '20261116a', 'i18n.js': '20261116a', 'courses.js': '20261123b', ...pilot , ...visit },
+    'teaching.html': { 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'i18n.js': '20261116a', 'teaching.js': '20261123b', ...pilot , ...visit },
     'accept-invitation.html': { 'accept-invitation.js': '20261116a', 'invitation-i18n.js': '20261116a' },
     'fiiu.html': { 'styles.css': '37', 'i18n.js': '20261116a', ...festival, 'fiiu-live.js': '20261116a', 'fiiu.js': '20261116a' , ...visit },
     'fiiu-admin.html': { 'admin-nav.js': '20261116a', 'admin-nav.css': '20261114a', 'styles.css': '37', 'i18n.js': '20261116a', ...festival, 'fiiu-admin.js': '20261117a' , ...visit },

@@ -67,6 +67,7 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
       const addColumn=(table,name,definition)=>{if(!db.prepare(`PRAGMA table_info(${table})`).all().some(c=>c.name===name))db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);};
       addColumn('course_modules','kind',"TEXT NOT NULL DEFAULT 'session' CHECK(kind IN ('session','discussion'))");
       addColumn('course_modules','posts_revision','INTEGER NOT NULL DEFAULT 0');
+      addColumn('course_enrollments',"access_basis","TEXT CHECK(access_basis IN ('founder','independent'))");
       const oldPosts=!db.prepare('PRAGMA table_info(course_posts)').all().some(c=>c.name==='thread_kind');
       addColumn('course_posts','thread_kind',"TEXT NOT NULL DEFAULT 'discussion' CHECK(thread_kind IN ('assignment','discussion'))");
       if(oldPosts)db.exec(`WITH RECURSIVE threads(id,thread_kind) AS (
@@ -106,7 +107,7 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
         return db.prepare(`SELECT * FROM course_attachments WHERE course_id=? AND module_id=? AND status='ready' AND id IN (${unique.map(()=>'?').join(',')})`).all(courseId,moduleId,...unique).map(row=>fromRow(tableInfo('attachments'),row));
       },
       // staff marks administrators, who organise courses and are never counted as participants.
-      async getMembers(ids) { if(!ids.length)return [];return db.prepare(`SELECT id,full_name AS name,email,role FROM users WHERE id IN (${ids.map(()=>'?').join(',')})`).all(...ids).map(({role,...member})=>({...member,staff:role==='admin'})); },
+      async getMembers(ids,{activeOnly=false}={}) { if(!ids.length)return [];return db.prepare(`SELECT id,full_name AS name,email,role FROM users WHERE id IN (${ids.map(()=>'?').join(',')})${activeOnly?" AND account_status='active'":''}`).all(...ids).map(({role,...member})=>({...member,staff:role==='admin'})); },
       // Which of these members hold the Founder badge, read apart from getMembers so nothing else depends on the column.
       async getFounders(ids) { if(!ids.length)return [];return db.prepare(`SELECT id FROM users WHERE founder_since IS NOT NULL AND id IN (${ids.map(()=>'?').join(',')})`).all(...ids).map(row=>row.id); },
       async count(name, filters = {}) { const info=tableInfo(name),where=whereSql(info,filters);return db.prepare(`SELECT count(*) AS n FROM ${info.table}${where.sql}`).get(...where.params).n; },
@@ -206,7 +207,7 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
       query.id=`in.(${unique.join(',')})`;
       return (await readPage(info.table,query,'id')).map(row=>fromRow(info,row));
     },
-    async getMembers(ids) { if(!ids.length)return [];return (await readPage('profiles',{id:`in.(${ids.join(',')})`,select:'id,full_name,email,app_role',order:'id.asc',limit:Math.min(500,new Set(ids).size)},'id')).map(row=>({id:row.id,name:row.full_name,email:row.email,staff:row.app_role==='admin'})); },
+    async getMembers(ids,{activeOnly=false}={}) { if(!ids.length)return [];return (await readPage('profiles',{id:`in.(${ids.join(',')})`,select:'id,full_name,email,app_role',...(activeOnly?{account_status:'eq.active'}:{}),order:'id.asc',limit:Math.min(500,new Set(ids).size)},'id')).map(row=>({id:row.id,name:row.full_name,email:row.email,staff:row.app_role==='admin'})); },
     async getFounders(ids) { if(!ids.length)return [];return (await readPage('profiles',{id:`in.(${ids.join(',')})`,founder_since:'not.is.null',select:'id',order:'id.asc',limit:Math.min(500,new Set(ids).size)},'id')).map(row=>row.id); },
     async count(name,filters={}) {
       const info=tableInfo(name),query=queryFor(info,filters,{limit:1});query.select='id';delete query.order;

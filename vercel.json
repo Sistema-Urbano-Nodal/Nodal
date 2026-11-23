@@ -8,7 +8,7 @@
   "devCommand": "npm start",
   "functions": {
     "api/index.js": {
-      "includeFiles": "web/pages/**"
+      "includeFiles": "{web/pages/**,server/assets/certificates/**}"
     }
   },
   "headers": [

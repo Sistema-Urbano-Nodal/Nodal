@@ -66,6 +66,7 @@ async function course(fresh){
   }
   // The final survey comes before the intake gate: an enrolled person without a course form answers it too.
   appendSurvey();
+  if(snapshot.enrollment&&!snapshot.isAdmin&&!snapshot.finalSurvey&&!snapshot.perkCourse&&c.status==='published')root.append(memberCertificate(snapshot));
   if(!snapshot.intake&&!snapshot.isAdmin){root.append(intakeForm());renderRoutePreview();return;}
   const actions=el('div','pilot-actions');actions.append(tr('span',snapshot.enrollment?'enrolled':'staff','pilot-tag'));
   if(snapshot.intake){
@@ -110,6 +111,32 @@ async function course(fresh){
   const target=snapshot.modules.some(m=>m.id===activeId)?activeId:snapshot.modules.some(m=>m.id===requested)?requested:(sessions[0]||general[0]).id;
   // A course just read carries each full module (only full records have resources), so the first one opens without another read.
   await openModule(target,fetched?snapshot.modules.find(m=>m.id===target&&Array.isArray(m.resources)):undefined);
+}
+function memberCertificate(original){
+  const pane=el('section','pilot-intake'),actions=el('div','pilot-actions'),message=el('p','pilot-status');
+  message.setAttribute('role','status');
+  pane.append(tr('h2','myCertificate'),actions,message);
+  function render(certificate){
+    if(certificate?.downloadUrl===base()+'/certificate'){
+      const link=tr('a','downloadCertificate','pilot-button');link.href=certificate.downloadUrl;
+      actions.replaceChildren(tr('p','certificateMemberReady'),link);
+      return link;
+    }
+    const check=button('checkCourseCertificate',async()=>{
+      if(check.disabled)return;
+      check.disabled=true;status(message,'');
+      try{
+        const fresh=await api(base(),undefined,undefined,{redirectOnUnauthorized:false});
+        if(snapshot!==original)return;
+        if(!fresh.enrollment||fresh.isAdmin||fresh.course?.status!=='published'){await course(fresh);return;}
+        original.certificate=fresh.certificate;
+        if(fresh.certificate)render(fresh.certificate)?.focus();else status(message,t('certificateStillPending'));
+      }catch(err){status(message,err);}finally{check.disabled=false;}
+    },true);
+    actions.replaceChildren(tr('p','certificateMemberPending'),check);
+  }
+  render(original.certificate);
+  return pane;
 }
 // The survey reminder link opened with an account that is not enrolled: say so, and sign out so the right account can come back here.
 function otherAccount(){

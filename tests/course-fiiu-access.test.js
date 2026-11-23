@@ -32,7 +32,7 @@ async function setup(t,{fiiu=true}={}) {
  const server=http.createServer(async(req,res)=>{try{if(!await api({req,res,url:new URL(req.url,`http://${req.headers.host}`),user:users[req.headers.cookie]})){res.writeHead(404);res.end();}}catch(e){res.writeHead(e.status??500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:e.message}));}});
  server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const base=`http://127.0.0.1:${server.address().port}`;
- const call=async(path,{actor='member',method='GET',body,origin=base}={})=>fetch(base+path,{method,headers:{Cookie:actor,Origin:origin,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+ const call=async(path,{actor='member',method='GET',body,origin=base,headers={}}={})=>fetch(base+path,{method,headers:{Cookie:actor,Origin:origin,'Content-Type':'application/json',...headers},body:body===undefined?undefined:JSON.stringify(body)});
  for(const [id,title,enrollmentOpen] of [[PERK,'Movilidad',false],[CLOSED,'Closed',false],[OPEN,'Open',true]]) await store.insert('courses',{id,...normalizeCourse({title,status:'published',enrollmentOpen}),version:1,createdAt:SEPTEMBER,updatedAt:SEPTEMBER});
  // The September group: enrolled before the course closed.
  await store.insert('enrollments',{id:randomUUID(),courseId:PERK,userId:users.learner.id,createdAt:SEPTEMBER});
@@ -158,4 +158,71 @@ test('the team adds a Supporter who paid on Mercado Pago to the closed perk cour
  assert.equal(invited.status,409,'no invitation links to the closed course');
  const member=await call(`/api/admin/courses/${PERK}/participants`,{actor:'member',method:'POST',body:{email:'outsider@example.test'}});
  assert.notEqual(member.status,201,'only staff add');
+});
+
+test('staff can withdraw and restore a reconciled Founder seat without touching festival or legacy enrollment',async t=>{
+ const {call,store,users,register,detail,enroll}=await setup(t);
+ const course='/api/courses/'+PERK;
+ const roster='/api/admin/courses/'+PERK+'/participants';
+ const add=key=>call(roster,{actor:'staff',method:'POST',body:{email:users[key].email}});
+ const withdraw=(seat,actor='staff')=>call(roster+'/'+seat.id,{actor,method:'DELETE'});
+ const moduleId=randomUUID(),fileId=randomUUID();
+ await store.insert('modules',{id:moduleId,courseId:PERK,kind:'session',title:'Practice',position:1,status:'published',resources:[{attachmentId:fileId}],createdAt:SEPTEMBER,updatedAt:SEPTEMBER});
+ const file=await store.insert('attachments',{id:fileId,courseId:PERK,moduleId,userId:null,purpose:'material',name:'reading.txt',mime:'text/plain',size:4,storagePath:fileId,status:'ready',createdAt:SEPTEMBER});
+ await store.putFile(file,Buffer.from('read'));
+ const download=(headers={},actor='member')=>call('/api/course-attachments/'+fileId,{headers,actor});
+ await store.insert('intakes',{id:randomUUID(),courseId:PERK,userId:users.member.id,answers:{},updatedAt:SEPTEMBER});
+ const material=()=>call(course+'/modules/'+moduleId);
+ assert.equal((await material()).status,403);
+ assert.equal((await add('member')).status,201);
+ const seat=(await detail(PERK,'member')).enrollment;
+ assert.equal((await material()).status,200);
+ const opened=await download();assert.equal(opened.status,200);assert.equal(await opened.text(),'read');
+ assert.equal(opened.headers.get('cache-control'),'private, no-cache');
+ const conditional={'If-None-Match':opened.headers.get('etag')};
+ assert.equal((await download(conditional)).status,304);
+ assert.equal((await download(conditional,'outsider')).status,403);
+ assert.equal((await withdraw(seat,'outsider')).status,403);
+ assert.equal((await withdraw(seat)).status,200);
+ assert.equal((await material()).status,403);
+ assert.equal((await download(conditional)).status,403,'revalidation requires a current seat');
+ assert.equal((await enroll(PERK,'member')).status,403);
+ assert.equal((await withdraw(seat)).status,200,'retry is harmless');
+ assert.equal((await add('member')).status,201);
+ assert.equal((await withdraw(seat)).status,200,'an old roster action cannot remove a newly granted seat');
+ assert.equal((await material()).status,200,'restored seat and preserved intake');
+ register('outsider','2026-10-20T16:00:00Z');
+ await enroll(PERK,'outsider');
+ const free=(await detail(PERK,'outsider')).enrollment;
+ assert.equal((await add('outsider')).status,200);
+ assert.equal((await withdraw(free)).status,409);
+ assert.equal((await withdraw((await detail(PERK,'learner')).enrollment)).status,409);
+ assert.ok((await detail(PERK,'outsider')).enrollment);
+});
+
+test('existing October seats require individual reconciliation before withdrawal and independently earned access is preserved',async t=>{
+ const {call,store,users,register,detail}=await setup(t);
+ const id=randomUUID(),course='/api/admin/courses/'+PERK+'/participants/';
+ await store.insert('enrollments',{id,courseId:PERK,userId:users.member.id,createdAt:'2026-10-28T15:00:00Z'});
+ const change=(id,method,body,actor='staff')=>call(course+id,{actor,method,body});
+ assert.equal((await change(id,'DELETE')).status,409);
+ assert.equal((await change(id,'PATCH',{})).status,400);
+ assert.equal((await change(id,'PATCH',{verified:true},'member')).status,403);
+ // Both staff tabs read the unclassified legacy seat before either update reaches the repository.
+ const update=store.update.bind(store);let arrived=0,release;
+ const both=new Promise(resolve=>{release=resolve;});
+ store.update=async (table,filters,patch)=>{
+   if(table==='enrollments'&&patch.accessBasis==='founder'){if(++arrived===2)release();await both;}
+   return update(table,filters,patch);
+ };
+ const results=await Promise.all([change(id,'PATCH',{verified:true}),change(id,'PATCH',{verified:true})]);
+ assert.deepEqual(results.map(result=>result.status),[200,200]);
+ store.update=update;
+ assert.equal((await change(id,'DELETE')).status,200);
+ assert.equal((await detail(PERK,'member')).enrollment,null);
+ const other=randomUUID();
+ await store.insert('enrollments',{id:other,courseId:PERK,userId:users.outsider.id,createdAt:'2026-10-24T15:00:00Z'});
+ register('outsider','2026-10-20T16:00:00Z');
+ assert.equal((await change(other,'PATCH',{verified:true})).status,409);
+ assert.ok((await detail(PERK,'outsider')).enrollment);
 });

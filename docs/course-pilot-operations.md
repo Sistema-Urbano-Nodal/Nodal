@@ -12,18 +12,24 @@ Sign in with a NODAL administrator account and open `/teaching.html`. The bar un
 - Staff manage descriptions, objectives, assignment instructions, HTTPS material links, uploaded teaching files, recordings, session dates and publication status in **Course setup**. A version conflict preserves unsaved text and requires a reload before saving again.
 - Staff can reply to assignments and questions, or remove a contribution from the course conversation. A tombstone preserves the structure of replies.
 
+## Issuing a participation certificate
+
+In the teaching workspace, select the published course and open **Certificates**. Check the participant’s name and the course title before generating the PDF. For the September pilot, the participant must belong to the original group and have submitted the final survey. For other courses, an administrator confirms the enrolled participant has met that course’s requirements. Enrollment or a payment alone does not establish course completion.
+
+The participant can then download the PDF from their own course page. Generating it again preserves the issued file, including a PDF already uploaded by the team. To correct an issued certificate or accommodate a name the template cannot typeset, use the PDF upload or replacement action for that participant.
+
 ## Adding participants and sending invitations
 
 Open a published course in **Teaching workspace → Participants → Add participant**. An existing, confirmed NODAL account is enrolled by email with student access; no email is sent and its intake remains incomplete. Existing admins keep their global admin role. If the account is missing or unconfirmed, the form offers a separate **Send email invitation** button. Pending invitations show provider delivery status and a resend action. A resend cooldown and conditional database reservation protect against duplicate sends. A rejected resend preserves an older valid invitation.
 
-**Enrollment open** in **Course setup** controls every way into a course. When it is off:
+**Enrollment open** in **Course setup** controls general admissions. For ordinary courses, closing enrollment has the following effects.
 
 - Self-enrollment is refused (`403`, code `enrollment_closed`). The course stays listed and its page shows the closure and the session route, with no enroll button.
 - **Add participant**, **Send email invitation** and resends are refused (`409`, code `participant_enrollment_closed`) before any account lookup, email or database write. The Participants tab replaces them with a note pointing to the toggle.
 - An invitation sent before closure still lets the invitee save their password, but it does not enroll them. The invitation stays pending and the page says enrollment has closed (`invitation_enrollment_closed`).
 - Existing participants keep full access to sessions, materials, discussions and their intake.
 
-To admit someone after closure, turn **Enrollment open** on, add or invite them, then turn it off again. While it is on, self-enrollment is open too. Do not archive a course to close it: archived courses disappear for their participants. No path fills in a student's intake or promotes their account.
+For an ordinary course, to admit someone after closure, turn **Enrollment open** on, add or invite them, then turn it off again. While it is on, self-enrollment is open too. Do not archive a course to close it: archived courses disappear for their participants. No path fills in a student's intake or promotes their account.
 
 The first pilot course (`72e3cc56-a506-4a1b-97b5-9333e8d283ca`, *Curso Movilidad Nivel 2*) is closed by the data-only migration `20261001011348_close_mobility_pilot_enrollment.sql`. It also bumps the course version, so a Course setup form opened before closure gets a conflict instead of reopening enrollment. It does nothing if that id is absent or the toggle already closed the course. Before applying it, confirm the id with `select id,title,enrollment_open,version from pilot_courses order by created_at;`. Unticking **Enrollment open** in the teaching workspace has the same effect without a deploy. `npm run setup:course-pilot` still creates new shells open (the integration and load tests enroll into them) and never reopens an existing course.
 
@@ -31,7 +37,7 @@ The first pilot course (`72e3cc56-a506-4a1b-97b5-9333e8d283ca`, *Curso Movilidad
 
 *Curso Movilidad Nivel 2* stays closed, with the rules decided on 18 October 2026 ([the design](superpowers/specs/2026-10-18-course-fiiu-access-design.md)):
 
-- **FIIU registrants can join.** A member whose FIIU Fest 11 registration was created before the end of 25 October 2026 in Lima sees **Join the course** on the course page and can enrol themselves at any time. Everyone else who is not enrolled sees "For Supporters" and no button. Admins still admit anyone else by reopening enrolment.
+- **FIIU registrants can join.** A member whose FIIU Fest 11 registration was created before the end of 25 October 2026 in Lima sees **Join the course** on the course page and can enrol themselves at any time. Everyone else who is not enrolled sees "For Supporters" and no button. For a confirmed supporter, keep enrollment closed. After verifying the payment, use **Participants → Add participant** with the email of the confirmed NODAL account.
 - **The September group keeps its space.** The people enrolled before 1 October are the **September group**. Their posts and the replies under them, the final survey, the certificates and any material ticked **September group only** stay with them. People enrolled from 1 October see the conversation from October on.
 - **Tick materials before announcing the perk.** First reload any teaching workspace tab that was open before the 19 October update: an older tab saves sessions without the ticks and would clear them. Then open each session in **Course setup** and tick **September group only** on every recording or file that shows learners (faces, voices, names, field-exercise photos). Unticked items are open to new joiners. NODAL cannot revoke a Drive, YouTube or Vimeo link someone already holds.
 - **The groups show in Participants.** The participants table has a **Group** column (September 2026 or From October), and the participants CSV ends with a `group` column.

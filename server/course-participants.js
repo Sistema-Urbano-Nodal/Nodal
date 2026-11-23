@@ -14,11 +14,11 @@ export function participantEmail(value) {
 
 export function createCourseParticipants({store, userRepository}) {
   const one = async (name, filter) => (await store.find(name, filter, {limit:1}))[0] ?? null;
-  async function enroll(courseId, userId) {
+  async function enroll(courseId, userId, founderGrant=false) {
     const current = await one('enrollments', {courseId,userId});
     if (current) return {enrollment:current, added:false};
     try {
-      return {enrollment:await store.insert('enrollments',{id:newId(),courseId,userId,createdAt:stamp()}), added:true};
+      return {enrollment:await store.insert('enrollments',{id:newId(),courseId,userId,createdAt:stamp(),accessBasis:founderGrant?'founder':'independent'}), added:true};
     } catch (error) {
       if (error.status !== 409) throw error;
       const existing = await one('enrollments',{courseId,userId});
@@ -32,8 +32,8 @@ export function createCourseParticipants({store, userRepository}) {
     if (account && (!account.active || account.email?.toLowerCase() !== email)) invitationError('participant_unavailable',403);
     return account;
   }
-  async function addKnown(courseId, account) {
-    const {enrollment,added} = await enroll(courseId, account.id);
+  async function addKnown(courseId, account, founderGrant=false) {
+    const {enrollment,added} = await enroll(courseId, account.id, founderGrant);
     await store.update('invitations',{courseId,email:account.email.toLowerCase(),acceptedAt:null},{userId:account.id,acceptedAt:stamp(),updatedAt:stamp()});
     return {result:added?'enrolled':'already_enrolled',participant:{userId:account.id,name:account.name,email:account.email,enrolledAt:enrollment.createdAt}};
   }
@@ -60,12 +60,13 @@ export function createCourseParticipants({store, userRepository}) {
     if(course.enrollmentOpen===false&&!whileClosed)invitationError('participant_enrollment_closed',409);
   }
   return {
-    async add(course, rawEmail, {whileClosed=false}={}) {
+    async add(course, rawEmail, {whileClosed=false, independentlyEligible}={}) {
       admitting(course,{whileClosed});
       const email=participantEmail(rawEmail), account=await accountFor(email);
       if(!account)invitationError('participant_not_found',404);
       if(!account.confirmed)invitationError('participant_unconfirmed',409);
-      return addKnown(course.id,account);
+      const founderGrant=whileClosed && course.enrollmentOpen===false && independentlyEligible && !await independentlyEligible(account);
+      return addKnown(course.id,account,founderGrant);
     },
     async invite(course, rawEmail, createdBy) {
       admitting(course);

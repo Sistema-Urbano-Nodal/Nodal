@@ -2,7 +2,7 @@
 export const COURSE_TABLES = {
   courses: { table: 'pilot_courses', fields: ['id','title','description','translations','status','startsOn','endsOn','enrollmentOpen','version','createdAt','updatedAt'], json: ['translations'], bool: ['enrollmentOpen'] },
   modules: { table: 'course_modules', fields: ['id','courseId','kind','postsRevision','title','description','objectives','instructions','translations','sessionDate','position','status','resources','version','createdAt','updatedAt'], json: ['resources','translations'] },
-  enrollments: { table: 'course_enrollments', fields: ['id','courseId','userId','createdAt'], json: [] },
+  enrollments: { table: 'course_enrollments', fields: ['id','courseId','userId','createdAt','accessBasis'], json: [] },
   invitations: { table: 'course_invitations', fields: ['id','courseId','email','userId','createdBy','deliveryStatus','acceptedAt','createdAt','updatedAt'], json: [] },
   intakes: { table: 'course_intakes', fields: ['id','courseId','userId','answers','updatedAt'], json: ['answers'] },
   posts: { table: 'course_posts', fields: ['id','courseId','moduleId','userId','authorName','staff','clientId','parentId','kind','threadKind','body','links','attachmentIds','deletedAt','createdAt'], json: ['links','attachmentIds'], bool: ['staff'] },
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS course_modules (
 );
 CREATE TABLE IF NOT EXISTS course_enrollments (
  id TEXT PRIMARY KEY, course_id TEXT NOT NULL REFERENCES pilot_courses(id) ON DELETE CASCADE,
- user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at TEXT NOT NULL, UNIQUE(course_id,user_id)
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at TEXT NOT NULL, access_basis TEXT CHECK(access_basis IN ('founder','independent')), UNIQUE(course_id,user_id)
 );
 CREATE TABLE IF NOT EXISTS course_intakes (
  id TEXT PRIMARY KEY, course_id TEXT NOT NULL REFERENCES pilot_courses(id) ON DELETE CASCADE,

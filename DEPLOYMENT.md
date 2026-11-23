@@ -325,6 +325,12 @@ The chat composer and inbox previews use `supabase/migrations/20261119044206_pri
 
 Before releasing the notification bell, apply `supabase/migrations/20261119232657_workspace_notifications.sql` using the same single-file procedure and record version `20261119232657`. Verify that an incoming message and a pending group invitation appear for the recipient, then clear independently when the member reads the chat or responds to the invitation.
 
+## Course certificates and paid course access
+
+Before releasing the paid-course controls, apply `supabase/migrations/20261123000000_course_founder_grant.sql` through the single-file procedure and record version `20261123000000`. The provenance field lets the teaching workspace distinguish a reconciled paid enrollment from a separate right to attend. Staff should use the merchant record when reconciling an older enrollment.
+
+The certificate generator uses the existing private course-certificate bucket and tables. Test generation in a published course, open the PDF from the recipient’s own course page, and check the participant name, course title and NODAL artwork. See [course operations](docs/course-pilot-operations.md) and [supporter payments](docs/supporter-payments.md).
+
 ## Admin home and metrics: one migration before `main`
 
 `20261114010000_metrics.sql` holds what the admin home (`/admin-home.html`, read
@@ -705,8 +711,8 @@ npm start
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
 2. Apply every pending Supabase migration (every file in the release sections
-   above, most recently `20261119232657_workspace_notifications.sql` under
-   "Private messages and project groups", before pushing `main`) one file
+   above, most recently `20261123000000_course_founder_grant.sql` under
+   "Course certificates and paid course access", before pushing `main`) one file
    at a time as described in "SQL Migration Steps" (never `supabase db push`
    against production) and confirm them.
 3. Configure Vercel environment variables.

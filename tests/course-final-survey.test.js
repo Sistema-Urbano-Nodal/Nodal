@@ -40,7 +40,7 @@ async function parseCsv(response) {
  row.push(cell);rows.push(row);return rows;
 }
 
-async function setup(t,{downloadLimits}={}) {
+async function setup(t,{downloadLimits,renderCertificate}={}) {
  const db=createDatabase({filename:':memory:'});t.after(()=>db.close());
  const users={};
  for(const [key,fullName,role] of [['staff','Organizer','admin'],['teacher','Docente','admin'],['ana','Ana Pérez','member'],['bruno','Bruno Díaz','member'],['carla','Carla Soto','member'],['nameless','Placeholder','member'],['outsider','Outsider','member']])
@@ -48,7 +48,7 @@ async function setup(t,{downloadLimits}={}) {
  const store=createCourseStore({db}),stamp='2026-09-01T00:00:00.000Z';
  /* A Supabase profile may have no full name (SQLite requires one), and its session name then falls back to the
     email's local part: Q12 must never offer that derived name. */
- const getMembers=store.getMembers;store.getMembers=async ids=>(await getMembers(ids)).map(m=>m.id===users.nameless.id?{...m,name:null}:m);
+ const getMembers=store.getMembers;store.getMembers=async (ids,options)=>(await getMembers(ids,options)).map(m=>m.id===users.nameless.id?{...m,name:null}:m);
  users.nameless.fullName='nameless';
  const course=await store.insert('courses',{id:randomUUID(),...normalizeCourse({title:'Curso Movilidad Nivel 2',status:'published',enrollmentOpen:false}),version:1,createdAt:stamp,updatedAt:stamp});
  const otherCourse=await store.insert('courses',{id:randomUUID(),...normalizeCourse({title:'Otro curso',status:'published'}),version:1,createdAt:stamp,updatedAt:stamp});
@@ -58,7 +58,7 @@ async function setup(t,{downloadLimits}={}) {
  await store.insert('intakes',{id:randomUUID(),courseId:course.id,userId:users.ana.id,answers:intake,updatedAt:stamp});
  const clock={now:OPEN_AT},logs=[];
  const api=createCourseApi({store,userRepository:{getUserById:async id=>Object.values(users).find(u=>u.id===id),toApiUser:u=>u},sameOrigin:req=>req.headers.origin===`http://${req.headers.host}`,
-  finalSurvey:{...FINAL_SURVEY,courseId:course.id},clock:()=>clock.now,log:(...args)=>logs.push(args),...(downloadLimits?{downloadLimits}:{})});
+  finalSurvey:{...FINAL_SURVEY,courseId:course.id},clock:()=>clock.now,log:(...args)=>logs.push(args),renderCertificate,...(downloadLimits?{downloadLimits}:{})});
  const server=http.createServer(async(req,res)=>{try{if(!await api({req,res,url:new URL(req.url,`http://${req.headers.host}`),user:users[req.headers.cookie]})){res.writeHead(404);res.end();}}catch(e){res.writeHead(e.status??500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:e.message}));}});
  server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const base=`http://127.0.0.1:${server.address().port}`;
@@ -176,7 +176,7 @@ test('only enrolled participants get the form; organisers get a read-only previe
  assert.equal('finalSurvey' in (await json(`/api/courses/${otherCourse.id}`)).body,false);
  for(const [suffix,method,body] of [['/survey/start','PUT',{overall:'buena'}],['/survey','POST',{answers:ANSWERS}],['/certificate','GET']]) {
   const refused=await json(`/api/courses/${otherCourse.id}${suffix}`,{method,body});
-  assert.deepEqual([refused.status,refused.body.code],[404,'survey_unavailable'],suffix);
+  assert.deepEqual([refused.status,refused.body.code],[404,suffix==='/certificate'?'certificate_unavailable':'survey_unavailable'],suffix);
  }
  const state=await snapshot('ana');
  assert.deepEqual({...state,survey:undefined},{closesAt:'2026-10-24T05:00:00Z',lastDay:'2026-10-23',open:true,contactEmail:'observatorio@limacomovamos.org',preview:false,response:null,certificate:null,publishAs:'Ana Pérez, Arquitecta',survey:undefined});
@@ -523,7 +523,8 @@ test('the course page reads survey state only for enrolled members of the survey
  const view=async(id,user)=>{calls.length=0;const result={};await api({req:{method:'GET',headers:{}},res:{writeHead:status=>{result.status=status;},end:body=>{result.body=JSON.parse(body);}},url:new URL('/api/courses/'+id,'https://nodal.test'),user});return {...result,reads:[...calls].sort()};};
  const member=await view(COURSE,{id:MEMBER,permission:'member'});
  assert.deepEqual(member.reads,['certificates','courses','enrollments','intakes','modules','surveys']);assert.equal(member.body.finalSurvey.publishAs,'Ana, Arquitecta');
- for(const [id,user] of [[OTHER,{id:MEMBER,permission:'member'}],[COURSE,{id:STAFF,permission:'admin'}],[COURSE,{id:STAFF,permission:'member'}]])
+ assert.deepEqual((await view(OTHER,{id:MEMBER,permission:'member'})).reads,['certificates','courses','enrollments','intakes','modules']);
+ for(const [id,user] of [[COURSE,{id:STAFF,permission:'admin'}],[COURSE,{id:STAFF,permission:'member'}]])
   assert.deepEqual((await view(id,user)).reads,['courses','enrollments','intakes','modules']);
 });
 
@@ -539,4 +540,91 @@ test('the rollout order, the published-course requirement and the privacy row ar
  assert.match(deployment,/supabase migration repair --status applied 20261006004500/);
  for(const [file,row] of [['en','| Course final survey and certificate |'],['es','| Encuesta final y certificado del curso |'],['pt-BR','| Pesquisa final e certificado do curso |']])
   assert.ok(read(`docs/privacy/privacy-policy.${file}.md`).includes(row),file);
+});
+
+test('staff approve a real enrolled participant of a published course and only that participant can download the generated PDF',async t=>{
+ const rendered=[];
+ const {db,store,otherCourse,users,json,call}=await setup(t,{renderCertificate:async fields=>{rendered.push(fields);return pdf('generated');}});
+ const member='/api/courses/'+otherCourse.id,admin='/api/admin/courses/'+otherCourse.id+'/certificates',issue=admin+'/'+users.ana.id+'/issue';
+ const post=(body,actor='staff',extra={})=>json(issue,{method:'POST',actor,body,...extra});
+ assert.equal((await json(admin,{actor:'ana'})).status,403);
+ assert.equal((await post({approved:true},'ana')).status,403);
+ assert.equal((await post({approved:true},'staff',{origin:'https://wrong.example'})).status,403);
+ assert.deepEqual((await json(admin,{actor:'staff'})).body,{rule:'staff',participants:[{userId:users.ana.id,name:'Ana Pérez',email:'ana@example.test',eligible:true,issued:false}]});
+ assert.equal((await json(member)).body.certificate,undefined);
+ assert.equal((await post({})).status,400);
+ assert.equal((await post({approved:true,name:'Unrelated'})).status,400);
+ assert.equal((await json(admin+'/'+users.outsider.id+'/issue',{method:'POST',actor:'staff',body:{approved:true}})).status,404);
+ const first=await post({approved:true});assert.equal(first.status,201);assert.equal(first.body.created,true);
+ assert.deepEqual(rendered,[{name:'Ana Pérez',course:otherCourse.title}]);
+ const retry=await post({approved:true});assert.equal(retry.status,200);assert.equal(retry.body.created,false);assert.deepEqual(retry.body.certificate,first.body.certificate);
+ assert.equal(rendered.length,1);assert.equal((await json(admin,{actor:'staff'})).body.participants[0].issued,true);
+ assert.deepEqual((await json(member)).body.certificate,{downloadUrl:member+'/certificate'});
+ const downloaded=await call(member+'/certificate');
+ assert.equal(downloaded.status,200);assert.equal(downloaded.headers.get('content-type'),'application/pdf');assert.match(downloaded.headers.get('cache-control'),/no-store/);
+ assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()),pdf('generated'));
+ assert.equal((await call(member+'/certificate?userId='+users.ana.id,{actor:'outsider'})).status,404);
+ assert.equal((await call(admin+'/'+users.ana.id,{actor:'staff'})).status,200);
+ const exported=await exportCourseData(store,users.ana.id);assert.ok(exported.certificates.some(f=>f.id===first.body.certificate.id&&!('storagePath' in f)));
+ await store.remove('enrollments',{courseId:otherCourse.id,userId:users.ana.id});
+ assert.equal((await call(member+'/certificate')).status,404);
+ await deleteCourseData(store,users.ana.id);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM course_certificate_bytes').get().n,0);
+});
+
+test('pilot issuance checks survey completion and never replaces a previously uploaded file',async t=>{
+ const generated=[];
+ const {users,admin,p,put,start,submit,json,call}=await setup(t,{renderCertificate:async args=>{generated.push(args);return pdf('generated');}});
+ const issue=key=>json(admin+'/certificates/'+users[key].id+'/issue',{actor:'staff',method:'POST',body:{}});
+ assert.equal((await issue('ana')).status,409);assert.equal((await issue('teacher')).status,404);
+ await put('staff','ana',upload(pdf('signed original')));assert.equal((await issue('ana')).status,409);
+ await start('ana');await submit('ana');
+ const keep=await issue('ana');assert.equal(keep.status,200);assert.equal(keep.body.created,false);assert.deepEqual(generated,[]);
+ assert.deepEqual(Buffer.from(await (await call(p+'/certificate')).arrayBuffer()),pdf('signed original'));
+ await start('bruno');await submit('bruno');assert.equal((await issue('bruno')).status,201);
+ assert.deepEqual(generated,[{name:'Bruno Díaz',course:'Curso Movilidad Nivel 2'}]);
+});
+
+test('simultaneous certificate issues keep one ready file, and disabled or archived participants cannot be issued a new one',async t=>{
+ let release,arrived=0;const waiting=new Promise(resolve=>{release=resolve;});
+ const {db,users,otherCourse,store,json}=await setup(t,{renderCertificate:async()=>{
+   if(++arrived===2)release();await waiting;return pdf('generated');
+ }});
+ const admin='/api/admin/courses/'+otherCourse.id+'/certificates',sign=()=>json(admin+'/'+users.ana.id+'/issue',{method:'POST',actor:'staff',body:{approved:true}});
+ const both=await Promise.all([sign(),sign()]);assert.deepEqual(both.map(r=>r.status).sort(),[200,201]);
+ assert.equal(both[0].body.certificate.id,both[1].body.certificate.id);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM course_certificate_bytes').get().n,1);
+ db.prepare("UPDATE users SET account_status='disabled' WHERE id=?").run(users.ana.id);
+ assert.deepEqual((await json(admin,{actor:'staff'})).body.participants,[]);
+ assert.equal((await sign()).status,404);
+ await store.update('courses',{id:otherCourse.id},{status:'archived'});
+ assert.equal((await sign()).status,409);
+});
+
+test('staff can recover an ordinary certificate by approving and uploading a manual PDF, or withdrawing it',async t=>{
+ const unsupported=()=>{throw Object.assign(new Error('typesetting'),{code:'certificate_text_unsupported'});};
+ const {users,otherCourse,json,call}=await setup(t,{renderCertificate:unsupported});
+ const p='/api/courses/'+otherCourse.id,admin='/api/admin/courses/'+otherCourse.id+'/certificates/'+users.ana.id;
+ const generate=await json(admin+'/issue',{actor:'staff',method:'POST',body:{approved:true}});
+ assert.deepEqual([generate.status,generate.body.code],[422,'certificate_text_unsupported']);
+ assert.equal((await json(admin,{actor:'staff',method:'PUT',body:upload(pdf('manually signed'))})).status,400);
+ const written=await json(admin,{actor:'staff',method:'PUT',body:{...upload(pdf('manually signed')),approved:true}});
+ assert.equal(written.status,201);
+ assert.deepEqual(Buffer.from(await (await call(p+'/certificate')).arrayBuffer()),pdf('manually signed'));
+ assert.equal((await json(admin+'/issue',{actor:'staff',method:'POST',body:{approved:true}})).body.certificate.id,written.body.certificate.id);
+ assert.equal((await json(admin,{actor:'staff',method:'DELETE'})).status,200);
+ assert.equal((await call(p+'/certificate')).status,404);
+});
+
+test('the ordinary course endpoint returns the real template as a privately downloadable PDF on retry',async t=>{
+ const {users,otherCourse,store,json,call}=await setup(t);
+ await store.insert('intakes',{id:randomUUID(),courseId:otherCourse.id,userId:users.ana.id,answers:{fullName:'Ana María Pérez'},updatedAt:new Date().toISOString()});
+ const admin='/api/admin/courses/'+otherCourse.id+'/certificates';
+ const roster=await json(admin,{actor:'staff'});assert.equal(roster.body.participants[0].name,'Ana María Pérez');
+ const issue=()=>json(admin+'/'+users.ana.id+'/issue',{method:'POST',actor:'staff',body:{approved:true}});
+ const first=await issue(),second=await issue();assert.deepEqual([first.status,second.status],[201,200]);assert.equal(first.body.certificate.id,second.body.certificate.id);
+ const response=await call('/api/courses/'+otherCourse.id+'/certificate'),bytes=Buffer.from(await response.arrayBuffer());
+ assert.equal(response.headers.get('content-type'),'application/pdf');assert.match(response.headers.get('cache-control'),/no-store/);
+ const {PDFDocument}=await import('pdf-lib');assert.equal((await PDFDocument.load(bytes)).getPageCount(),1);
+ assert.equal(first.body.certificate.size,bytes.length);
 });

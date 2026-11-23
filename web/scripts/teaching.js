@@ -253,7 +253,24 @@ function participantView(data,id,version,notice,onRefresh,closed=false,supporter
   const wrap=el('div','pilot-table-wrap'),table=el('table','pilot-table'),head=el('tr');
   // Only the FIIU perk course reports a group (September 2026 or From October), so only its table has the column.
   const grouped=data.participants.some(p=>p.group);
-  ['participant','enrolled',...(grouped?['group']:[]),'intakeResponses'].forEach(k=>head.append(tr('th',k)));table.append(head);
+  const manageSeats=supporters&&data.participants.some(p=>p.reconciliation);
+  async function reconcile(p,control) {
+    const {confirmed,enrollmentId}=p.reconciliation;
+    if(busy||!current()||!confirm(fill(confirmed?'withdrawSeatConfirm':'reconcileSeatConfirm',{name:p.name||p.email})))return;
+    setBusy(true,false);status(local,'');
+    try {
+      const result=await api(endpoint(id)+'/participants/'+encodeURIComponent(enrollmentId),confirmed?{}:{verified:true},confirmed?'DELETE':'PATCH');
+      if(!current())return;
+      if(result.result!==(confirmed?'withdrawn':'reconciled'))throw new Error(t('seatRefresh'));
+      await onRefresh(confirmed?'seatWithdrawn':'seatReconciled');
+    }catch(error){
+      if(current()) {
+        status(local,error.code==='participant_independent_access'?t('independentSeat'):t('seatRefresh'));
+        control.focus();
+      }
+    }finally{setBusy(false,false);}
+  }
+  ['participant','enrolled',...(grouped?['group']:[]),'intakeResponses',...(manageSeats?['founderAccess']:[])].forEach(k=>head.append(tr('th',k)));table.append(head);
   for(const p of data.participants){
     // Organisers see who has the Founder badge of the Membresía Fundador (the report's founder), after the name.
     const row=el('tr'),who=el('td');who.append(el('strong',null,p.name||''),...(p.founder===true?[founderBadge()]:[]),el('div','pilot-response-email',p.email||''));
@@ -265,7 +282,16 @@ function participantView(data,id,version,notice,onRefresh,closed=false,supporter
       for(const key of ['fullName','profession','city','motivation','experience','expectations','caseStudy','digitalFamiliarity'])dl.append(tr('dt',key),el('dd',null,p.intake[key]||''));
       details.append(dl);intake.append(details);
     }else intake.append(tr('span','pending'));
-    row.append(intake);table.append(row);
+    row.append(intake);
+    if(manageSeats) {
+      const cell=el('td');
+      if(p.reconciliation) {
+        const control=button(p.reconciliation.confirmed?'withdrawSeat':'reconcileSeat',()=>reconcile(p,control),true);
+        invitationButtons.push(control);cell.append(control);
+      }
+      row.append(cell);
+    }
+    table.append(row);
   }
   wrap.append(table);section.append(data.participants.length?wrap:tr('p','noParticipants','pilot-empty'));
   // The report lists at most 500 enrolments, oldest first, while the summary counts them all: a cut list says so and points to the CSV.
@@ -408,7 +434,96 @@ function finalSurveyView(id,version){
     await load();
   }
   // Read on first opening of the tab, never for a course without the survey; opened again a minute later it reads again (never mid-upload).
-  return {element:pane,open(){if(busy||(requested&&Date.now()-loadedAt<60000))return;requested=true;load().then(ok=>{if(!ok)requested=false;});}};
+  return {element:pane,invalidate(){requested=false;},open(){if(busy||(requested&&Date.now()-loadedAt<60000))return;requested=true;load().then(ok=>{if(!ok)requested=false;});}};
+}
+
+function courseCertificateView(course,version,onIssued){
+  const pane=el('section','pilot-survey-admin'),description=el('div'),list=el('div','pilot-table-wrap'),message=el('p','pilot-status');
+  message.setAttribute('role','status');
+  pane.append(tr('h2','courseCertificates'),description,message,list);
+  const path=endpoint(course.id)+'/certificates';
+  const current=()=>selectedId===course.id&&selectionVersion===version;
+  let busy=false;
+  async function open(){
+    if(busy)return;
+    description.replaceChildren();list.replaceChildren();
+    if(course.status!=='published'){status(message,t('certificatePublishedOnly'));return;}
+    busy=true;status(message,t('loading'));
+    try{
+      const data=await api(path,undefined,undefined,{redirectOnUnauthorized:false});
+      if(!current())return;
+      const survey=data.rule==='survey';
+      description.append(tr('p',survey?'certificateSurveyRule':'certificateStaffReview','pilot-data-note'));
+      status(message,'');
+      if(!data.participants.length){list.append(tr('p','noParticipants','pilot-empty'));return;}
+      const table=el('table','pilot-table'),head=el('thead'),labels=el('tr'),rows=el('tbody');
+      for(const key of ['participant','certificateColumn','actionsColumn'])labels.append(tr('th',key));
+      head.append(labels);table.append(head,rows);list.append(table);
+      for(const person of data.participants){
+        const row=el('tr'),name=el('th','pilot-response-person'),state=el('td'),actions=el('td','pilot-survey-actions');
+        name.append(el('strong',null,person.name));
+        if(person.email)name.append(el('div','pilot-response-email',person.email));
+        name.setAttribute('scope','row');row.append(name,state,actions);rows.append(row);
+        const personPath=path+'/'+encodeURIComponent(person.userId);
+        async function save(action){
+          if(busy)return;
+          busy=true;
+          const controls=pane.querySelectorAll('input,textarea,select,button');
+          for(const control of controls)control.disabled=true;
+          status(message,t('loading'));
+          try{
+            await action();
+            if(current()){
+              person.issued=true;onIssued();
+              const download=draw();
+              say(message,'certificateIssueSaved',{name:person.name});
+              if(!pane.hidden)download?.focus();
+            }
+          }catch(err){if(current())status(message,err);}finally{
+            busy=false;for(const control of controls)control.disabled=false;
+          }
+        }
+        function draw(){
+          actions.replaceChildren();
+          const stateKey=person.issued?'certificateIssued':!person.eligible?'certificateIneligible':survey?'certificateEligible':'certificateReview';
+          state.replaceChildren(tr('span',stateKey,person.issued?'pilot-survey-done':'pilot-survey-pending'));
+          let download;
+          if(person.issued){
+            download=labelled(tr('a','downloadCertificateFile','pilot-survey-file'),'downloadCertificateOf',person.name);
+            download.href=personPath;actions.append(download);
+          }else if(person.eligible){
+            const issue=labelled(button('issueCertificate',()=>{
+              if(busy||!confirm(fill(survey?'confirmSurveyIssue':'confirmStaffIssue',{name:person.name})))return;
+              return save(()=>api(personPath+'/issue',survey?{}:{approved:true},'POST',{redirectOnUnauthorized:false}));
+            },true),'issueCertificateFor',person.name);
+            actions.append(issue);
+          }
+          // The survey course keeps its existing bulk and individual file manager in the Final survey tab.
+          if(!survey&&(person.eligible||person.issued)){
+            const custom=el('details','pilot-file-manager');
+            custom.append(tr('summary',person.issued?'replaceCertificate':'certificateCustomFile'));
+            const picker=labelled(el('input'),'certificateFileOf',person.name);
+            picker.type='file';picker.accept='application/pdf,.pdf';
+            picker.addEventListener('change',async()=>{
+              const file=picker.files?.[0];picker.value='';
+              const approval=person.issued?'confirmCustomReplace':'confirmStaffIssue';
+              if(!file||busy||!confirm(fill(approval,{name:person.name})))return;
+              await save(async()=>{
+                const pdf=await readCertificate(file);
+                await api(personPath,{mime:'application/pdf',data:pdf,approved:true},'PUT',{redirectOnUnauthorized:false});
+              });
+            });
+            custom.append(picker);actions.append(custom);
+          }
+          return download;
+        }
+        draw();
+      }
+    }catch(err){
+      if(current()){status(message,err);list.replaceChildren(button('retry',open,true));}
+    }finally{busy=false;}
+  }
+  return {element:pane,open};
 }
 
 function setupView(course,modules,id,onCourseSaved,septemberTick=false){
@@ -470,7 +585,8 @@ async function showCourse(id,selected='responses',participantNotice=null){
     }
     // The course page sends finalSurvey only for the one course that has the survey, so only that course gets the tab.
     const survey=finalSurvey?finalSurveyView(id,version):null;
-    const panes={responses:responseView(data.feedback,id,new Map(modules.map(m=>[m.id,m]))),participants:participantView(data,id,version,participantNotice,refreshParticipants,paneClosed,paneSupporters),...(survey?{finalSurvey:survey.element}:{}),courseSetup:setupView(course,modules,id,updateCourse,perkCourse===true)};
+    const certificates=courseCertificateView(course,version,()=>survey?.invalidate());
+    const panes={responses:responseView(data.feedback,id,new Map(modules.map(m=>[m.id,m]))),participants:participantView(data,id,version,participantNotice,refreshParticipants,paneClosed,paneSupporters),...(survey?{finalSurvey:survey.element}:{}),courseCertificates:certificates.element,courseSetup:setupView(course,modules,id,updateCourse,perkCourse===true)};
     const buttons={};
     function activate(key){
       for(const name of Object.keys(panes)){
@@ -479,6 +595,7 @@ async function showCourse(id,selected='responses',participantNotice=null){
       // The address keeps the course and tab, so a reload or a return from the course page lands here again.
       try{history.replaceState(null,'','?'+new URLSearchParams({course:id,tab:key}));}catch{/* The view works without it. */}
       if(key==='finalSurvey')survey.open();
+      if(key==='courseCertificates')certificates.open();
     }
     Object.entries(panes).forEach(([key,pane],index)=>{
       const b=button(key,()=>activate(key),true);b.id='staff-tab-'+key;b.setAttribute('role','tab');b.setAttribute('aria-controls','staff-pane-'+key);

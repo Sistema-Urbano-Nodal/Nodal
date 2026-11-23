@@ -40,14 +40,15 @@ function elements(){
 // config: the /api/billing/config answer (or a function of the request count, or a promise of it); answers: what each acceptance
 // POST gets, in turn; restored: the ids of the inputs a browser ticks again from its saved form state before the page script runs;
 // abortSignal: the page's AbortSignal (by default it has none, as Safari before 16 has no AbortSignal.timeout).
-async function page({config=OPEN,me={user:{email:'ana@example.test'}},answers=[CREATED],i18n:dictionary,restored=[],abortSignal}={}){
+async function page({config=OPEN,me={user:{email:'ana@example.test'}},answers=[CREATED],i18n:dictionary,restored=[],abortSignal,historyState=null}={}){
  const nodes=elements(),requests=[],assigned=[],listeners=[],windowListeners={},documentListeners={},timers=[],focused=[];let configs=0;
  for(const id of restored)nodes[id].checked=true;
  for(const node of Object.values(nodes))node.focus=()=>focused.push(node.id);
  const fake={lang:'en',t:(key,vars)=>`${fake.lang}:${key}`+(vars?' '+Object.entries(vars).map(([name,value])=>`${name}=${value}`).join(' '):''),onChange:listener=>listeners.push(listener)};
  const i18n=dictionary??fake;
  const queue=[...answers];
- const context={window:{nodalI18n:i18n,addEventListener:(type,listener)=>(windowListeners[type]??=[]).push(listener)},URL,JSON,...(abortSignal?{AbortSignal:abortSignal}:{}),
+ const history={state:historyState,replaceState(value){this.state=value;}};
+ const context={window:{history,nodalI18n:i18n,addEventListener:(type,listener)=>(windowListeners[type]??=[]).push(listener)},URL,JSON,...(abortSignal?{AbortSignal:abortSignal}:{}),
   location:{pathname:'/payments.html',search:'',assign:url=>assigned.push(url)},
   document:{getElementById:id=>nodes[id]??null,createElement:tag=>new Node(tag),visibilityState:'visible',
    addEventListener:(type,listener)=>(documentListeners[type]??=[]).push(listener),removeEventListener:(type,listener)=>{documentListeners[type]=(documentListeners[type]||[]).filter(other=>other!==listener);}},
@@ -68,7 +69,7 @@ async function page({config=OPEN,me={user:{email:'ana@example.test'}},answers=[C
  vm.createContext(context);vm.runInContext(script,context);await flush();
  const radios={once:nodes.payOptionOnce,installments:nodes.payOptionInstallments},boxes=[nodes.payAcceptTerms,nodes.payAcceptPayment,nodes.payAcceptRenewal];
  const change=target=>nodes.fundForm.listeners.change({target});
- return{nodes,requests,assigned,radios,boxes,
+ return{nodes,requests,assigned,history,radios,boxes,
   posts:()=>requests.filter(request=>request.method==='POST'),
   configs:()=>requests.filter(request=>request.path==='/api/billing/config').length,
   // The id of the element the page last moved focus to.
@@ -264,7 +265,7 @@ test('coming back from Mercado Pago never brings the acceptances back ticked',as
  assert.deepEqual(p.assigned,[MP]);assert.equal(n.payContinue.disabled,true);
  await p.pageshow(true);
  assert.deepEqual([...Object.values(p.radios),...p.boxes].map(input=>input.checked),[false,false,false,false,false],'every acceptance is ticked again on this visit');
- assert.equal(n.payStatus.textContent,'');assert.equal(n.payContinue.disabled,true);assert.equal(n.payHint.hidden,false);
+ assert.equal(n.payStatus.textContent,'en:y.fund.returned');assert.equal(n.payContinue.disabled,true);assert.equal(n.payHint.hidden,false);
  p.choose('once');p.tickAll();assert.equal(n.payContinue.disabled,false,'the button is no longer stuck off');
  await p.submit();await flush();
  assert.equal(p.posts().length,2);assert.equal(p.posts()[1].body.option,'once');assert.deepEqual(p.assigned,[MP,MP]);
@@ -371,7 +372,7 @@ test('a page that stays after the link (the Mercado Pago app took it, or the loa
  assert.deepEqual(p.assigned,[MP]);assert.equal(n.payContinue.disabled,true);assert.equal(n.payStatus.textContent,'en:y.fund.sending');
  p.visibility('hidden');assert.equal(n.payContinue.disabled,true,'leaving: nothing changes');
  p.visibility('visible');
- assert.deepEqual([...Object.values(p.radios),...p.boxes].map(input=>input.checked),[false,false,false,false,false]);assert.equal(n.payStatus.textContent,'');
+ assert.deepEqual([...Object.values(p.radios),...p.boxes].map(input=>input.checked),[false,false,false,false,false]);assert.equal(n.payStatus.textContent,'en:y.fund.returned');
  p.choose('once');p.tickAll();assert.equal(n.payContinue.disabled,false);
  p.wait();assert.deepEqual(p.boxes.map(box=>box.checked),[true,true,true],'the fallback was disarmed once the page was shown again');
  // Without a show, the fallback starts afresh after a while.
@@ -459,4 +460,17 @@ test('the footer shows the contact addresses with no label left in English',()=>
  const footer=html.slice(html.indexOf('<footer'),html.indexOf('</footer>'));
  assert.match(footer,/<a class="footer-email" href="mailto:fmuro@sistemaurbano\.org,malegre@sistemaurbano\.org">fmuro@sistemaurbano\.org, malegre@sistemaurbano\.org<\/a>/);
  assert.doesNotMatch(footer,/Email:/);
+});
+
+test('the checkout history entry gives payment guidance after returning or reloading without inferring approval',async()=>{
+ const first=await page({historyState:{existing:'kept'}});
+ assert.equal(first.nodes.payStatus.textContent,'');
+ first.choose('once');first.tickAll();await first.submit();await first.pageshow(true);
+ assert.equal(first.nodes.payStatus.textContent,'en:y.fund.returned');
+ assert.equal(first.history.state.existing,'kept');
+ const restored=await page({historyState:first.history.state});
+ assert.equal(restored.nodes.payStatus.textContent,'en:y.fund.returned');
+ assert.equal(restored.nodes.payContinue.disabled,true);
+ assert.equal(restored.posts().length,0);
+ restored.lang('es');assert.equal(restored.nodes.payStatus.textContent,'es:y.fund.returned');
 });
