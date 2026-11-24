@@ -92,3 +92,68 @@ test('the hosted store passes the session actor in a server-side RPC and preserv
   await assert.rejects(store.execute('actor', 'notifications', {}), { status: 404 });
   assert.deepEqual(called, ['rpc/member_workspace_notifications', { method: 'POST', body: { p_actor: 'actor' } }]);
 });
+
+test('published network notices behave independently of chat unread and email opt-in', async t => {
+  const db = createDatabase({filename:':memory:'});
+  const server = createApp({db});
+  server.listen(0,'127.0.0.1');
+  await once(server,'listening');
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); db.close(); });
+  const origin = 'http://127.0.0.1:' + server.address().port;
+  const actor = name => {
+    const {id} = createUser(db,{fullName:name,email:name+'@example.test',passwordHash:'unused'});
+    return {id,cookie:createSession(db,id).cookie.split(';')[0]};
+  };
+  const alice = actor('Alice'), bea = actor('Bea');
+  const path = '/api/workspace/notifications';
+  const get = async (user=alice,editorial=true) => {
+    const response = await fetch(origin + path + (editorial ? '?editorial=1' : ''),{headers:{Cookie:user.cookie}});
+    assert.equal(response.status,200);
+    assert.equal(response.headers.get('cache-control'),'no-store');
+    return response.json();
+  };
+  const read = (user,type,id,from=origin) => fetch(origin + path + '/read',{
+    method:'POST',headers:{Cookie:user?.cookie || '',Origin:from,'Content-Type':'application/json'},body:JSON.stringify({type,id}),
+  });
+  const newsId=randomUUID(), qa=randomUUID(), catalogId=randomUUID();
+  const insert = db.prepare(`INSERT INTO nodal_news(id,title,body,url,status,pinned,created_at,updated_at,version)
+    VALUES(?,'News about the network','','','draft',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,1)`);
+  insert.run(newsId); insert.run(qa);
+  db.prepare("INSERT INTO news_email_events(event_id,news_id) VALUES(?,?)").run('test:'+alice.id+':'+qa,qa);
+  const translations={en:{title:'Jobs'},pt:{title:'Vagas'},es:{title:'Empleos'}};
+  db.prepare("INSERT INTO catalog_items(id,kind,status,visibility,translations_json) VALUES(?,'opportunity','published','public',?)")
+    .run(catalogId,JSON.stringify(translations));
+  assert.equal((await get()).total,0,'drafts, probes and ordinary opportunities stay out');
+  db.prepare("UPDATE nodal_news SET status='published',published_at=CURRENT_TIMESTAMP WHERE id=?").run(newsId);
+  db.prepare('UPDATE catalog_items SET featured=1 WHERE id=?').run(catalogId);
+  assert.deepEqual(await get(alice,false),{total:0,items:[]});
+  const first=await get();
+  assert.equal(first.workspaceTotal,0);
+  assert.equal(first.total,2);
+  const news=first.items.find(x=>x.type==='news'), opportunity=first.items.find(x=>x.type==='opportunity');
+  assert.deepEqual(news,{id:newsId,title:'News about the network',createdAt:news.createdAt,type:'news'});
+  assert.ok(Number.isFinite(Date.parse(news.createdAt)));
+  assert.deepEqual(opportunity.title,{en:'Jobs',es:'Empleos',pt:'Vagas'});
+  assert.equal(db.prepare('SELECT count(*) AS n FROM news_email_outbox').get().n,0);
+  assert.equal((await read(null,'news',newsId)).status,401);
+  assert.equal((await read(alice,'news',newsId,'https://invalid.example')).status,403);
+  assert.equal((await read(alice,'invitation',newsId)).status,400);
+  assert.equal((await read(alice,'news','broken')).status,400);
+  for(const r of await Promise.all([read(alice,'news',newsId),read(alice,'news',newsId)])) {
+    assert.equal(r.status,200); assert.deepEqual(await r.json(),{ok:true});
+  }
+  assert.equal((await get()).total,1);
+  assert.equal((await get(bea)).total,2);
+  db.prepare("UPDATE catalog_items SET visibility='members' WHERE id=?").run(catalogId);
+  assert.equal((await get()).total,0);
+  db.prepare("UPDATE nodal_news SET status='draft' WHERE id=?").run(newsId);
+  assert.equal((await get(bea)).total,0);
+  db.prepare("UPDATE nodal_news SET status='published',title='Updated copy' WHERE id=?").run(newsId);
+  assert.equal((await get()).total,0,'republishing preserves the individual receipt');
+  assert.equal((await get(bea)).items[0].title,'Updated copy');
+  const newcomer=actor('New');
+  db.prepare("UPDATE users SET created_at='2099-01-01T00:00:00.000Z' WHERE id=?").run(newcomer.id);
+  assert.equal((await get(newcomer)).total,0,'members only see events since joining');
+  db.prepare('DELETE FROM nodal_news WHERE id=?').run(newsId);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM workspace_editorial_reads').get().n,0);
+});

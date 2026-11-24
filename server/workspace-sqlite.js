@@ -1,3 +1,4 @@
+import { combinedBell, readEditorial } from './workspace-editorial.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { profilePhotoFields } from './profile-policy.js';
 
@@ -129,7 +130,7 @@ const schema = `
 `;
 
 const receiptOperations = new Set(['direct', 'send', 'group', 'invite', 'createProject', 'step', 'update']);
-const readOperations = new Set(['inbox', 'thread', 'export', 'attachment', 'exportAttachment', 'notifications']);
+const readOperations = new Set(['inbox', 'thread', 'export', 'attachment', 'exportAttachment', 'notifications', 'combinedBell']);
 const MAX_FILE_TOTAL = 3 * 1024 * 1024;
 const AUTHOR_FILE_QUOTA = 64 * 1024 * 1024;
 
@@ -440,6 +441,8 @@ export function createSqliteWorkspace(db) {
     }
     if (op === 'inbox') return inbox(actor);
     if (op === 'notifications') return notifications(actor);
+    if (op === 'combinedBell') return combinedBell(query, actor, notifications(actor));
+    if (op === 'readPublication') return readEditorial(query, actor, data.eventId);
     if (op === 'export') return exportOwn(actor);
     if (op === 'attachment' || op === 'exportAttachment') return getFile(actor, data.attachmentId, op === 'exportAttachment');
     if (op === 'thread') return detail(actor, data.threadId, data.beforeMessageId);

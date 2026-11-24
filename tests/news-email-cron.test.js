@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createHash, randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createNewsEmailCron, drainNewsEmail } from '../api/cron/news-email.js';
@@ -39,6 +40,22 @@ test('only the authenticated production job can drain the hosted outbox', async 
   assert.equal(success.calls, 1);
 });
 
+test('the database scheduler authenticates with the Vault bearer while the deployment holds just its verifier', async () => {
+  const token = randomBytes(32).toString('hex');
+  const verifier = createHash('sha256').update(token).digest('hex');
+  const settings = { ...env, CRON_SECRET: '', NODAL_NEWS_SCHEDULE_SHA256: verifier };
+  const success = await request({ settings, authorization: 'Bearer ' + token });
+  assert.equal(success.calls, 1);
+  assert.equal(success.statusCode, 200);
+  for (const authorization of ['Bearer ' + verifier, 'Bearer ' + '0'.repeat(64), token, 'Bearer ']) {
+    const denied = await request({ settings, authorization });
+    assert.equal(denied.statusCode, 401);
+    assert.equal(denied.calls, 0);
+  }
+  const unset = await request({ settings: { ...settings, NODAL_NEWS_SCHEDULE_SHA256: '' }, authorization: 'Bearer ' + token });
+  assert.equal(unset.statusCode, 401);
+});
+
 test('cron surfaces delivery failures and returns counts without subscriber information', async () => {
   for (const kind of ['failed', 'deferred', 'uncertain']) {
     const partial = { ...delivered, [kind]: 1 };
@@ -67,14 +84,17 @@ test('the scheduled sender drains consecutive batches and stops before claiming 
   assert.equal(expired.sent, 0);
 });
 
-test('schedule runs only on the canonical default branch and routes to its own Vercel function', () => {
+test('the quarter-hour production schedule and the manual recovery workflow use the canonical sender', () => {
   const read = file => readFileSync(new URL(file, import.meta.url), 'utf8');
   const config = JSON.parse(read('../vercel.json'));
   const workflow = read('../.github/workflows/news-email.yml');
   const rule = config.rewrites.find(route => new RegExp('^' + route.source + '$').test('/api/cron/news-email'));
   assert.equal(rule.destination, '/api/cron/news-email.js');
   assert.equal(config.functions['api/cron/news-email.js'].maxDuration, 300);
-  assert.match(workflow, /cron: '7,22,37,52 \* \* \* \*'/);
+  const schedule = read('../docs/ops/news-email-schedule.sql');
+  assert.match(schedule, /cron\.schedule\('nodal-publication-emails', '7,22,37,52 \* \* \* \*'/);
+  assert.match(schedule, /https:\/\/sistema-urbano-nodal-ten\.vercel\.app\/api\/cron\/news-email/);
+  assert.doesNotMatch(workflow, /^\s+schedule:/m);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /permissions: \{\}/);
   assert.match(workflow, /github\.repository == 'Sistema-Urbano-Nodal\/Nodal' && github\.ref == 'refs\/heads\/main'/);

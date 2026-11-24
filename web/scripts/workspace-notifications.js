@@ -7,7 +7,9 @@
   const words = {
     heading: ['Notifications', 'Notificaciones', 'Notificações'],
     openInbox: ['Open Messages', 'Abrir mensajes', 'Abrir mensagens'],
-    empty: ['No unread messages or group invitations.', 'No tienes mensajes sin leer ni invitaciones a grupos.', 'Você não tem mensagens não lidas nem convites para grupos.'],
+    empty: ['No unread notifications.', 'No tienes notificaciones sin leer.', 'Você não tem notificações não lidas.'],
+    news: ['NODAL news · {title}', 'Noticias de NODAL · {title}', 'Notícias da NODAL · {title}'],
+    opportunity: ['Featured opportunity · {title}', 'Oportunidad destacada · {title}', 'Oportunidade em destaque · {title}'],
     loading: ['Loading notifications…', 'Cargando notificaciones…', 'Carregando notificações…'],
     error: ['Couldn’t update notifications.', 'No se pudieron actualizar las notificaciones.', 'Não foi possível atualizar as notificações.'],
     retry: ['Try again', 'Reintentar', 'Tentar novamente'],
@@ -35,6 +37,8 @@
     bell: 'M5 16.5c1.2-1.6 1.4-3 1.4-6.2a5.6 5.6 0 0 1 11.2 0c0 3.2.2 4.6 1.4 6.2l.6 1H4.4l.6-1z M9.8 20.1a2.6 2.6 0 0 0 4.4 0 M12 3V2',
     message: 'M5 4.5h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8L5 21v-3.5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z M7.5 9H16 M7.5 13h5.5',
     invitation: 'M13.4 8a3.6 3.6 0 1 1-7.2 0 3.6 3.6 0 0 1 7.2 0z M3 19.5v-1a6.8 6.8 0 0 1 12.1-4.2 M19 12v7 M15.5 15.5h7',
+    news: 'M4 4h14v14a2 2 0 0 0 4 0V8h-4 M4 4v14a2 2 0 0 0 2 2h14 M7 8h8 M7 12h8 M7 16h5',
+    opportunity: 'M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2 M3 8h18v12H3z M3 12c5 3 13 3 18 0 M10 13h4v3h-4z',
     close: 'm6 6 12 12 M18 6 6 18',
   };
   function icon(kind) {
@@ -77,20 +81,45 @@
   panel.append(inbox); widget.append(button, panel, live, toast); mount.append(widget);
 
   const uuid = /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i;
+  const editorial = item => item.type === 'news' || item.type === 'opportunity';
+  const noticeKey = item => item.type + ':' + item.id;
+  function validItem(item) {
+    if (!item || !uuid.test(item.id)) return false;
+    if (item.type === 'news') return typeof item.title === 'string' && Boolean(item.title.trim());
+    if (item.type === 'opportunity') return ['en', 'es', 'pt'].some(lang => typeof item.title?.[lang] === 'string' && item.title[lang].trim());
+    return ['message', 'invitation'].includes(item.type) && uuid.test(item.threadId) && ['direct', 'group'].includes(item.threadKind);
+  }
   function validSummary(value) {
     return Number.isSafeInteger(value?.total) && value.total >= 0 && Array.isArray(value.items)
-      && value.items.length <= 20 && value.items.length <= value.total
-      && value.items.every(item => item && uuid.test(item.id) && uuid.test(item.threadId)
-        && ['message', 'invitation'].includes(item.type) && ['direct', 'group'].includes(item.threadKind));
+      && value.items.length <= 20 && value.items.length <= value.total && value.items.every(validItem)
+      && (value.workspaceTotal === undefined ? !value.items.some(editorial)
+        : Number.isSafeInteger(value.workspaceTotal) && value.workspaceTotal >= 0 && value.workspaceTotal <= value.total);
   }
   function itemText(item) {
+    if (item.type === 'news') return t('news', { title: item.title });
+    if (item.type === 'opportunity') {
+      const title = [language(), 'es', 'en', 'pt'].map(lang => item.title[lang]).find(s => typeof s === 'string' && s.trim());
+      return t('opportunity', { title });
+    }
     const name = item.actorName || '', group = item.groupName || t('unnamedGroup');
     const type = item.type === 'invitation' ? 'invitation' : item.threadKind;
     return t(type + (name ? '' : 'Unknown'), { name, group });
   }
-  const itemLink = item => '/messages.html?' + new URLSearchParams({ [item.type === 'invitation' ? 'invite' : 'thread']: item.threadId });
+  function itemLink(item) {
+    if (item.type === 'news') return '/community.html?news=' + item.id + '#nodal-news';
+    if (item.type === 'opportunity') return '/opportunities.html?id=' + item.id;
+    return '/messages.html?' + new URLSearchParams({ [item.type === 'invitation' ? 'invite' : 'thread']: item.threadId });
+  }
+  // Keep link navigation native, including when the member opens the item in another tab.
+  function markEditorialRead(item, event) {
+    if (!item || !editorial(item) || event.defaultPrevented || (event.type === 'auxclick' && event.button !== 1)) return;
+    fetch('/api/workspace/notifications/read', {
+      method: 'POST', credentials: 'same-origin', keepalive: true, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: item.type, id: item.id }),
+    }).then(response => { if (response.ok) refresh(true); }).catch(() => {});
+  }
   function alreadyViewing(item) {
-    if (location.pathname !== '/messages.html') return false;
+    if (editorial(item) || location.pathname !== '/messages.html') return false;
     const params = new URLSearchParams(location.search);
     if (item.type === 'invitation') return params.get('invite') === item.threadId;
     if (params.has('project') || (params.get('tab') || 'chat') !== 'chat') return false;
@@ -122,7 +151,12 @@
     expireToast();
   }
   dismiss.addEventListener('click', event => { hideToast(); if (!event.detail) button.focus(); });
-  target.addEventListener('click', hideToast);
+  function openToastItem(event) {
+    markEditorialRead(notices[0], event);
+    if (event.type !== 'auxclick' || event.button === 1) hideToast();
+  }
+  target.addEventListener('click', openToastItem);
+  target.addEventListener('auxclick', openToastItem);
   multiple.addEventListener('click', () => { open(); (list.querySelector('a') || inbox).focus(); });
   toast.addEventListener('pointerenter', () => clearTimeout(toastTimer));
   toast.addEventListener('pointerleave', expireToast);
@@ -138,10 +172,15 @@
     document.dispatchEvent(new CustomEvent('nodal:workspace-count', { detail: { count } }));
   }
   function renderList() {
-    const focused = document.activeElement, thread = list.contains(focused) && focused.dataset.thread;
+    const focused = document.activeElement, focusKey = list.contains(focused) && focused.dataset.notice;
     const rows = (summary?.items || []).map(item => {
       const li = el('li'), link = el('a', 'workspace-bell-item');
-      link.dataset.thread = item.threadId;
+      link.dataset.notice = editorial(item) ? noticeKey(item) : item.threadId;
+      if (editorial(item)) {
+        const openItem = event => markEditorialRead(item, event);
+        link.addEventListener('click', openItem);
+        link.addEventListener('auxclick', openItem);
+      }
       link.href = itemLink(item);
       const mark = el('span', 'workspace-bell-mark');
       mark.append(icon(item.type)); link.append(mark);
@@ -159,7 +198,7 @@
       link.append(text); li.append(link); return li;
     });
     list.replaceChildren(...rows);
-    if (thread && !panel.hidden) (list.querySelector('[data-thread="' + thread + '"]') || inbox).focus({ preventScroll: true });
+    if (focusKey && !panel.hidden) (list.querySelector('[data-notice="' + focusKey + '"]') || inbox).focus({ preventScroll: true });
   }
   function render() {
     const count = summary?.total || 0;
@@ -176,21 +215,21 @@
     // When the 20-row window shrinks, an older alert exposed by a read is not a new delivery.
     const capped = summary && summary.total > summary.items.length;
     const previousFloor = capped ? Date.parse(summary.items.at(-1)?.createdAt) : NaN;
-    const fresh = next.items.filter(item => item.createdAt && !seen.has(item.id)
+    const fresh = next.items.filter(item => item.createdAt && !seen.has(noticeKey(item))
       && (!capped || !Number.isFinite(previousFloor) || Date.parse(item.createdAt) >= previousFloor)
       && !alreadyViewing(item));
     if (notices.length) {
-      notices = notices.filter(notice => next.items.some(item => item.id === notice.id) && !alreadyViewing(notice));
+      notices = notices.filter(notice => next.items.some(item => noticeKey(item) === noticeKey(notice)) && !alreadyViewing(notice));
       if (notices.length) paintToast(); else hideToast();
     }
     if (summary && fresh.length && !document.hidden) {
       live.textContent = fresh.length === 1 ? itemText(fresh[0]) : t('several', { count: fresh.length });
       if (panel.hidden) showToast(fresh);
     }
-    for (const item of next.items) seen.add(item.id);
+    for (const item of next.items) seen.add(noticeKey(item));
     // Keep enough recent ids for paging changes without storing activity on the device.
     if (seen.size > 160) {
-      const current = new Set(next.items.map(item => item.id));
+      const current = new Set(next.items.map(noticeKey));
       for (const id of seen) { if (seen.size <= 100) break; if (!current.has(id)) seen.delete(id); }
     }
     const stamp = JSON.stringify(next);
@@ -198,7 +237,7 @@
     summary = next; failed = false; signature = stamp;
     widget.hidden = false;
     if (repaint) render();
-    publishCount(next.total);
+    publishCount(next.workspaceTotal ?? next.total);
   }
 
   let timer, busy = false, refreshNeeded = false, lastRequest = 0, delay = 30000;
@@ -212,7 +251,7 @@
     clearTimeout(timer); busy = true; lastRequest = Date.now();
     const abort = new AbortController(), timeout = setTimeout(() => abort.abort(), 12000);
     try {
-      const response = await fetch('/api/workspace/notifications', { credentials: 'same-origin', cache: 'no-store', signal: abort.signal });
+      const response = await fetch('/api/workspace/notifications?editorial=1', { credentials: 'same-origin', cache: 'no-store', signal: abort.signal });
       if (response.status === 401 || response.status === 403) {
         signedOut = true; summary = null; signature = null; seen.clear();
         live.textContent = ''; hideToast(); close(false); widget.hidden = true; render(); publishCount(0);

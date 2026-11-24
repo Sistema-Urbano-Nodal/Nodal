@@ -325,6 +325,9 @@ The chat composer and inbox previews use `supabase/migrations/20261119044206_pri
 
 Before releasing the notification bell, apply `supabase/migrations/20261119232657_workspace_notifications.sql` using the same single-file procedure and record version `20261119232657`. Verify that an incoming message and a pending group invitation appear for the recipient, then clear independently when the member reads the chat or responds to the invitation.
 
+For news and featured opportunities in the bell, apply `supabase/migrations/20261124030000_editorial_bell.sql` after the publication email migrations and record version `20261124030000`. A new public editorial event becomes visible to existing members regardless of email subscription. Opening a notice clears it for that member. The chat-only notification RPC remains available to older clients.
+
+
 ## Optional publication emails
 
 Apply `supabase/migrations/20261122010000_news_email_alerts.sql` using the single-file procedure and record version `20261122010000`. Subscribers opt in from [Community](https://sistema-urbano-nodal-ten.vercel.app/community.html#news-email). New published news and public featured opportunities queue one delivery per subscriber. Existing accounts begin unsubscribed. Earlier publications are not backfilled. Unsubscribing removes the account’s pending deliveries.
@@ -333,7 +336,7 @@ Before releasing publication previews and public bylines, apply `supabase/migrat
 
 Apply `supabase/migrations/20261123235500_publication_covers.sql` before releasing optional email covers, and record version `20261123235500`. The publishing desk accepts a photo or poster for a news item or opportunity. Posts without a cover use the standard NODAL map.
 
-GitHub Actions runs **Deliver NODAL publication emails** from `main` at minutes 7, 22, 37 and 52 of each UTC hour. GitHub can delay scheduled runs under load. The workflow contacts the production Vercel function at `GET /api/cron/news-email`. Use the same random bearer secret in Vercel’s Production `CRON_SECRET` and the repository Actions secret `NODAL_NEWS_CRON_SECRET`. Redeploy after changing the Vercel secret. The function uses the existing server-side Supabase settings, `EMAIL_SMTP_URL`, `EMAIL_FROM`, `PUBLIC_BASE_URL` and optional `EMAIL_REPLY_TO`.
+Supabase Cron calls the production sender at minutes 7, 22, 37 and 52 UTC each hour. Run `docs/ops/news-email-schedule-key.sql` on the linked production database, then put its SHA-256 result in the Vercel Production variable `NODAL_NEWS_SCHEDULE_SHA256`. The bearer itself stays in Vault. Deploy the sender, then run `docs/ops/news-email-schedule.sql` on the same database to register future runs. Verify the job in `cron.job_run_details`. A failed HTTP response marks the run as failed. The HTTPS call is synchronous so its authorization header stays out of shared queues. The function uses the server-side Supabase configuration, `EMAIL_SMTP_URL`, `EMAIL_FROM`, `PUBLIC_BASE_URL` and optional `EMAIL_REPLY_TO`. The GitHub recovery workflow uses its existing `NODAL_NEWS_CRON_SECRET` and the Vercel Production `CRON_SECRET`.
 
 For an immediate run, choose **Actions → Deliver NODAL publication emails → Run workflow** on `main`. The run records delivery counts. Any deferred delivery remains queued for a later run. For an `uncertain` or stale `sending` row, check the SMTP provider before resending because it may already have accepted the message. `401` indicates that the caller secret is missing or does not match. `503` indicates a configuration or service failure. The CLI `node scripts/deliver-news-alerts.js --send --limit 10` can also run a bounded batch in a configured environment.
 
@@ -723,8 +726,8 @@ npm start
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
 2. Apply every pending Supabase migration (every file in the release sections
-   above, most recently `20261123235500_publication_covers.sql` under
-   "Optional publication emails", before pushing `main`) one file
+   above, most recently `20261124030000_editorial_bell.sql` under
+   "Private messages and project groups", before pushing `main`) one file
    at a time as described in "SQL Migration Steps" (never `supabase db push`
    against production) and confirm them.
 3. Configure Vercel environment variables.

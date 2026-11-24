@@ -10,7 +10,7 @@ const item = (overrides = {}) => ({
   id: randomUUID(), threadId: randomUUID(), type: 'message', threadKind: 'direct', groupName: '',
   actorName: 'Ana', createdAt: '2026-11-19T12:00:00Z', ...overrides,
 });
-const ok = (items, total = items.length) => ({ ok: true, status: 200, json: async () => ({ items, total }) });
+const ok = (items, total = items.length, workspaceTotal) => ({ ok: true, status: 200, json: async () => ({ items, total, workspaceTotal }) });
 
 async function bell(initial, { dashboard = false, hidden = false } = {}) {
   const listeners = {}, timers = new Map(), requests = [], counts = [];
@@ -34,7 +34,7 @@ async function bell(initial, { dashboard = false, hidden = false } = {}) {
     querySelector(selector) {
       if (selector.startsWith('[data-')) {
         const attr = selector.match(/^\[(data-[\w-]+)(?:="([^"]+)")?\]$/);
-        return descendants(this).find(n => attr && (attr[1] === 'data-thread' ? n.dataset.thread === attr[2] : n.getAttribute(attr[1]) !== null)) || null;
+        return descendants(this).find(n => attr && (attr[1] === 'data-notice' ? n.dataset.notice === attr[2] : n.getAttribute(attr[1]) !== null)) || null;
       }
       return super.querySelector(selector);
     }
@@ -53,7 +53,7 @@ async function bell(initial, { dashboard = false, hidden = false } = {}) {
     document, location, window: { nodalI18n: i18n, innerWidth: 390, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
     setTimeout: (fn, ms) => { timers.set(++timerId, { fn, ms }); return timerId; },
     clearTimeout: id => timers.delete(id), URLSearchParams, CustomEvent, AbortController,
-    fetch: async (path, options) => { requests.push({ path, options }); return typeof answer === 'function' ? answer() : answer; },
+    fetch: async (path, options) => { requests.push({ path, options }); return typeof answer === 'function' ? answer(path, options) : answer; },
   });
   await flush();
   return {
@@ -109,11 +109,11 @@ test('unchanged polling is silent, reading clears the count, network or format f
   assert.equal(h.get('list').children.length, 2);
   await h.refresh(ok([])); assert.deepEqual(h.counts, [1, 2, 0]);
   assert.equal(h.get('count').hidden, true); assert.equal(h.get('retry').hidden, true);
-  assert.match(h.get('status').textContent, /No unread messages/);
+  assert.match(h.get('status').textContent, /No unread notifications/);
   await h.refresh({ ok: false, status: 401 });
   assert.equal(h.get('panel').parent.hidden, true);
   assert.equal(h.timers.size, 0);
-  assert.ok(h.requests.every(r => r.path === '/api/workspace/notifications' && r.options.cache === 'no-store' && !r.options.method));
+  assert.ok(h.requests.every(r => r.path === '/api/workspace/notifications?editorial=1' && r.options.cache === 'no-store' && !r.options.method));
 });
 
 test('polling pauses in hidden tabs and a read during an in-flight request supersedes its stale result', async () => {
@@ -151,4 +151,55 @@ test('a second message in an unread thread shows a dismissible banner even thoug
   several.listeners.click(); assert.equal(toast.hidden, true); assert.equal(h.get('panel').hidden, false);
   await h.refresh(ok([item()])); assert.equal(toast.hidden, true, 'the open bell already shows incoming activity');
   assert.ok(h.requests.every(r => !r.options.method));
+});
+
+test('the bell links editorial items by source, translates headlines and keeps the inbox count separate', async () => {
+  const news = { type: 'news', id: randomUUID(), title: 'Ríos <urbanos>', createdAt: '2026-11-24T12:00:00Z' };
+  const opportunity = { type: 'opportunity', id: news.id, title: { en: 'Summer school', es: 'Escuela de verano', pt: 'Escola de verão' }, createdAt: news.createdAt };
+  const direct = item();
+  const h = await bell(ok([news, opportunity, direct], 35, 7));
+  const links = () => h.get('list').querySelectorAll('a');
+  assert.equal(h.get('count').textContent, '35');
+  assert.deepEqual(h.counts, [7], 'the sidebar only advertises unread conversations and invitations');
+  assert.deepEqual(links().map(n => n.href), [
+    '/community.html?news=' + news.id + '#nodal-news', '/opportunities.html?id=' + opportunity.id, '/messages.html?thread=' + direct.threadId,
+  ]);
+  assert.match(content(links()[0]), /Ríos <urbanos>/);
+  assert.match(content(links()[1]), /Featured opportunity/);
+  h.get('button').listeners.click(); links()[1].focus();
+  h.lang('es'); assert.match(content(links()[1]), /Oportunidad destacada.*Escuela de verano/);
+  h.lang('pt'); assert.match(content(links()[1]), /Oportunidade em destaque.*Escola de verão/);
+  assert.equal(h.document.activeElement, links()[1]);
+  assert.ok(h.requests.every(r => !r.options.method), 'opening the bell or reading its preview does not mark it read');
+  let read = false;
+  await h.refresh(async (path, options) => {
+    if (options.method === 'POST') { read = true; return { ok: true }; }
+    return read ? ok([opportunity, direct], 34, 7) : ok([news, opportunity, direct], 35, 7);
+  });
+  const link = links()[0]; link.listeners.click({type: 'click', button: 0});
+  await flush();
+  const writes = h.requests.filter(r => r.options.method === 'POST');
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].path, '/api/workspace/notifications/read');
+  assert.deepEqual(JSON.parse(writes[0].options.body), { type: 'news', id: news.id });
+  assert.equal(writes[0].options.keepalive, true);
+  assert.equal(writes[0].options.credentials, 'same-origin');
+  assert.equal(h.get('count').textContent, '34');
+  assert.deepEqual(h.counts, [7]);
+  assert.equal(links().some(l => l.href === link.href), false);
+});
+
+test('a featured opportunity can be opened from a single-arrival toast and a failed receipt leaves it unread', async () => {
+  const id = randomUUID(), at = '2026-11-24T12:00:00Z';
+  const news = { type: 'news', id, title: 'Lima hoy', createdAt: at };
+  const opportunity = { type: 'opportunity', id, title: { en: 'Call', pt: 'Edital', es: 'Convocatoria' }, createdAt: at };
+  const h = await bell(ok([news], 1, 0));
+  await h.refresh(async (path, options) => options.method === 'POST' ? { ok: false } : ok([news, opportunity], 2, 0));
+  const toast = h.get('toast'), link = toast.querySelector('a');
+  assert.equal(toast.hidden, false, 'the news item with the same UUID does not suppress an opportunity');
+  assert.equal(link.href, '/opportunities.html?id=' + id);
+  assert.match(link.textContent, /Featured opportunity.*Call/);
+  link.listeners.auxclick({type: 'auxclick', button: 1}); await flush();
+  assert.deepEqual(JSON.parse(h.requests.find(r => r.options.method === 'POST').options.body), {type: 'opportunity', id});
+  assert.equal(h.get('count').textContent, '2');
 });

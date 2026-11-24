@@ -328,7 +328,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   for (const name of memberPages) {
     const html = pages[name + '.html'];
     assert.equal(html.match(/data-workspace-notifications\b/g)?.length, 1, name);
-    assert.ok(html.includes('workspace-notifications.js?v=20261119d') && html.includes('workspace-notifications.css?v=20261119d'), name);
+    assert.ok(html.includes('workspace-notifications.js?v=20261124a') && html.includes('workspace-notifications.css?v=20261119d'), name);
   }
   const required = {
     'index.html': { 'styles.css': '37', 'i18n.js': '20261116a', 'app.js': '20261116a', 'recs.js': '6', 'script.js': '18', 'hero-network.js': '2', 'node-request.js': '20261116a', 'node-request.css': '20261109a' , ...visit },

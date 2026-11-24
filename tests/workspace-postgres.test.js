@@ -233,6 +233,75 @@ test('PostgreSQL member conversations, invitations and project collaboration', {
     assert.equal(capped.items.length,20);
     assert.deepEqual(capped.items.map(i=>i.createdAt),capped.items.map(i=>i.createdAt).sort().reverse());
   });
+  await t.test('editorial notices reach members independently of preferences and coexist with chat',async () => {
+    const migrate = async name => execute('psql',[...args,'-f',new URL('../supabase/migrations/'+name,import.meta.url).pathname]);
+    await sql(`ALTER TABLE profiles ADD COLUMN created_at timestamptz DEFAULT now();
+      CREATE TABLE catalog_items(id uuid PRIMARY KEY,kind text,status text,visibility text,featured boolean,translations jsonb);
+      CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY,email text,email_confirmed_at timestamptz);
+      GRANT SELECT,INSERT,UPDATE,DELETE ON catalog_items TO service_role;`);
+    await migrate('20261001011356_nodal_news.sql');
+    await migrate('20261122010000_news_email_alerts.sql');
+    const ids=Array.from({length:6},()=>randomUUID()),[historic,draft,news,listing,other,qa]=ids;
+    const addNews=(id,published)=>sql(`SET ROLE service_role; INSERT INTO nodal_news
+      (id,title,body,url,status,pinned,published_at,created_at,updated_at,version)
+      VALUES('${id}','New edition','','','${published?'published':'draft'}',false,${published?'now()':'NULL'},now(),now(),1)`);
+    await addNews(historic,true);
+    await migrate('20261124030000_editorial_bell.sql');
+    for(const role of ['anon','authenticated']) {
+      for(const rpc of ['member_workspace_bell(uuid)','read_editorial_notification(uuid,text)']) {
+        assert.equal(await sql(`SELECT has_function_privilege('${role}','public.${rpc}','execute')`),'f');
+      }
+      for(const name of ['editorial_events','editorial_reads','visible_editorial_notifications']) {
+        assert.equal(await sql(`SELECT has_table_privilege('${role}','member_work.${name}','select')`),'f');
+      }
+    }
+    const feed=async user=>JSON.parse(await sql(`SET ROLE service_role; SELECT public.member_workspace_bell('${user}')`));
+    const read=async (user,key)=>JSON.parse(await sql(`SET ROLE service_role; SELECT public.read_editorial_notification('${user}',${quote(key)})`));
+    assert.deepEqual(await feed(a),{total:0,workspaceTotal:0,items:[]});
+    await addNews(draft,false); await addNews(qa,false);
+    await sql(`SET ROLE service_role; INSERT INTO news_email_events(event_id,news_id) VALUES('test:${a}:${qa}','${qa}');
+      INSERT INTO catalog_items VALUES('${listing}','opportunity','published','public',false,'{"en":{"title":"Grant"},"pt":{"title":"Bolsa"},"es":{"title":"Beca"}}'),
+      ('${other}','resource','published','public',true,'{}')`);
+    assert.equal((await feed(a)).total,0);
+    await addNews(news,true);
+    await sql(`SET ROLE service_role; UPDATE catalog_items SET featured=true WHERE id='${listing}'`);
+    const first=await feed(a);
+    assert.equal(first.total,2);
+    assert.deepEqual(first.items.map(i=>[i.id,i.type,i.title]),[
+      [listing,'opportunity',{en:'Grant',pt:'Bolsa',es:'Beca'}],[news,'news','New edition'],
+    ]);
+    assert.equal(await sql('SELECT count(*) FROM news_email_outbox'),'0');
+    const reader=randomUUID(),sender=randomUUID();
+    await sql(`INSERT INTO profiles(id,full_name) VALUES('${reader}','Reader'),('${sender}','Sender');
+      INSERT INTO profile_preferences VALUES('${reader}','{"directoryPublic":true}'),('${sender}','{"directoryPublic":true}')`);
+    assert.equal((await feed(reader)).total,0,'a new account does not inherit previously published notices');
+    await op(reader,'group',{name:'Messages',targetIds:[a],clientId:randomUUID()});
+    const mixed=await feed(a);
+    assert.equal(mixed.total,3); assert.equal(mixed.workspaceTotal,1);
+    assert.equal(mixed.items[0].type,'invitation');
+    // Hidden or nonsensical read attempts cannot preemptively suppress a future publication.
+    assert.deepEqual(await read(a,'n:'+draft),{ok:true});
+    assert.deepEqual(await Promise.all([read(a,'c:'+listing),read(a,'c:'+listing)]),[{ok:true},{ok:true}]);
+    assert.equal((await feed(a)).total,2);
+    assert.equal((await feed(b)).total,2,'independent recipient');
+    await sql(`SET ROLE service_role; UPDATE catalog_items SET visibility='members' WHERE id='${listing}';
+      UPDATE nodal_news SET status='draft' WHERE id='${news}'`);
+    assert.equal((await feed(b)).total,0);
+    await sql(`SET ROLE service_role; UPDATE nodal_news SET status='published',title='Edited' WHERE id='${news}';
+      UPDATE catalog_items SET visibility='public' WHERE id='${listing}'`);
+    assert.equal((await feed(a)).total,2);
+    assert.equal((await feed(b)).items.find(i=>i.id===news).title,'Edited');
+    await sql(`SET ROLE service_role; INSERT INTO nodal_news(id,title,body,url,status,pinned,published_at,created_at,updated_at,version)
+      SELECT gen_random_uuid(),'More','','','published',false,now(),now(),now(),1 FROM generate_series(1,21)`);
+    assert.equal((await feed(b)).total,23);
+    assert.equal((await feed(b)).items.length,20);
+    await sql(`SET ROLE service_role; DELETE FROM catalog_items WHERE id='${listing}';
+      DELETE FROM nodal_news;`);
+    assert.equal(await sql('SELECT count(*) FROM member_work.editorial_reads'),'0');
+    await erase(reader); await erase(sender);
+    assert.equal((await feed(reader)).status,403);
+    assert.equal((await read(reader,'n:'+news)).status,403);
+  });
   const opening = message(b,'Where should we start?');
   const first = await Promise.all([op(a,'direct',opening), op(a,'direct',opening)]);
   assert.deepEqual(first[0],first[1]);

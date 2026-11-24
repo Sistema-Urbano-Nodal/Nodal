@@ -3,8 +3,9 @@ import { createSupabaseClients } from './supabase.js';
 
 const WORKSPACE_FILE = /^\/api\/(workspace|me\/export)\/attachments\/([^/]+)$/;
 const NOTIFICATIONS_PATH = '/api/workspace/notifications';
+const EDITORIAL_READ_PATH = NOTIFICATIONS_PATH + '/read';
 export function isWorkspaceRoute(pathname) {
-  return pathname === '/api/workspace' || pathname === NOTIFICATIONS_PATH || WORKSPACE_FILE.test(pathname);
+  return pathname === '/api/workspace' || pathname === NOTIFICATIONS_PATH || pathname === EDITORIAL_READ_PATH || WORKSPACE_FILE.test(pathname);
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function invalid(field) {
@@ -54,10 +55,15 @@ export function createHostedWorkspace(clients) {
   return {
     async execute(actorId, op, data) {
       clients ??= createSupabaseClients();
-      const feed = op === 'notifications';
-      const result = await clients.admin.rest(feed ? 'rpc/member_workspace_notifications' : 'rpc/member_workspace', {
-        method: 'POST', body: feed ? { p_actor: actorId } : { p_actor: actorId, p_op: op, p_data: data },
-      });
+      let rpc = 'member_workspace', body = {p_actor:actorId, p_op:op, p_data:data};
+      if (op === 'notifications' || op === 'combinedBell') {
+        rpc = op === 'combinedBell' ? 'member_workspace_bell' : 'member_workspace_notifications';
+        body = {p_actor:actorId};
+      } else if (op === 'readPublication') {
+        rpc = 'read_editorial_notification';
+        body = {p_actor:actorId, p_event:data.eventId};
+      }
+      const result = await clients.admin.rest('rpc/' + rpc, {method:'POST', body});
       if (result?.error && [400, 403, 404, 409, 413].includes(result.status)) {
         throw Object.assign(new Error(result.error), { status: result.status });
       }
@@ -74,11 +80,22 @@ export async function serveWorkspace({ req, res, url, actor, store, send, sameOr
   if (!store) return send(res, 503, { error: 'Workspace unavailable' });
   const fileRoute = url.pathname.match(WORKSPACE_FILE);
   const feed = url.pathname === NOTIFICATIONS_PATH;
+  const readPublication = url.pathname === EDITORIAL_READ_PATH;
+  if (readPublication && req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' }, { Allow: 'POST' });
   if ((fileRoute || feed) && req.method !== 'GET') return send(res, 405, { error: 'Method not allowed' }, { Allow: 'GET' });
   if (!['GET', 'POST'].includes(req.method)) return send(res, 405, { error: 'Method not allowed' }, { Allow: 'GET, POST' });
   if (req.method === 'POST' && !sameOrigin(req)) return send(res, 403, { error: 'Cross-origin request rejected' });
   if (!allowed()) return;
-  if (feed) return send(res, 200, await store.execute(actor.id, 'notifications', {}));
+  if (feed) {
+    const op = url.searchParams.get('editorial') === '1' ? 'combinedBell' : 'notifications';
+    return send(res, 200, await store.execute(actor.id, op, {}));
+  }
+  if (readPublication) {
+    const input = await readJsonBody(req, 1024);
+    if (input?.type !== 'news' && input?.type !== 'opportunity') invalid('publication type');
+    const prefix = input.type === 'news' ? 'n:' : 'c:';
+    return send(res, 200, await store.execute(actor.id, 'readPublication', {eventId:prefix + id(input.id, 'id')}));
+  }
   if (fileRoute) {
     const attachmentId = id(fileRoute[2], 'attachmentId');
     const op = fileRoute[1] === 'workspace' ? 'attachment' : 'exportAttachment';

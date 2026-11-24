@@ -1,12 +1,16 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { createNewsAlerts, createNewsEmailSender } from '../../server/news-alerts.js';
 import { dataBackend } from '../../server/supabase.js';
 
-function authorized(header, secret) {
-  if (!secret || typeof header !== 'string') return false;
-  const supplied = Buffer.from(header);
-  const expected = Buffer.from('Bearer ' + secret);
-  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+function authorized(header, env) {
+  if (typeof header !== 'string' || !header.startsWith('Bearer ')) return false;
+  const token = header.slice(7);
+  const digest = value => createHash('sha256').update(value).digest();
+  const supplied = digest(token);
+  if (env.CRON_SECRET && timingSafeEqual(supplied, digest(env.CRON_SECRET))) return true;
+  const verifier = env.NODAL_NEWS_SCHEDULE_SHA256;
+  return /^[a-f0-9]{64}$/.test(token) && typeof verifier === 'string' && /^[a-f0-9]{64}$/.test(verifier)
+    && timingSafeEqual(supplied, Buffer.from(verifier, 'hex'));
 }
 
 export async function drainNewsEmail(env, {
@@ -34,7 +38,7 @@ export function createNewsEmailCron({ env = process.env, run = drainNewsEmail, l
       res.end(JSON.stringify(body));
     }
     if (env.VERCEL_ENV !== 'production') return reply(404, { error: 'not found' });
-    if (!authorized(req.headers.authorization, env.CRON_SECRET)) return reply(401, { error: 'unauthorized' });
+    if (!authorized(req.headers.authorization, env)) return reply(401, { error: 'unauthorized' });
     if (req.method !== 'GET') {
       res.setHeader('Allow', 'GET');
       return reply(405, { error: 'method not allowed' });

@@ -1,3 +1,4 @@
+import {SQLITE_EDITORIAL_BELL} from './workspace-editorial.js';
 import {postgresJpeg,readPublicationCover} from './publication-cover.js';
 import {createSupabaseClients} from './supabase.js';
 import {fail} from './courses-domain.js';
@@ -31,7 +32,7 @@ const SELECT=NEWS_FIELDS.map(snake).join(',');
 // The public feed reads pinned items first, then the newest publication; the desk reads the newest written first.
 // `after` is the last row of the previous page ({pinned,publishedAt,id} or {createdAt,id}); the API validates it.
 export function createNewsStore({db,env=process.env,clients,fetchImpl=fetch}={}){
- if(db)db.exec(NEWS_SQLITE_SCHEMA+SQLITE_NEWS_ALERTS);
+ if(db)db.exec(NEWS_SQLITE_SCHEMA+SQLITE_NEWS_ALERTS+SQLITE_EDITORIAL_BELL);
  const supa=db?null:clients??createSupabaseClients({env,fetchImpl});
  const keyset=(published,{pinned,publishedAt,createdAt,id})=>!published?{or:`(created_at.lt.${createdAt},and(created_at.eq.${createdAt},id.lt.${id}))`}
   :pinned?{or:`(pinned.eq.false,and(pinned.eq.true,published_at.lt.${publishedAt}),and(pinned.eq.true,published_at.eq.${publishedAt},id.lt.${id}))`}
