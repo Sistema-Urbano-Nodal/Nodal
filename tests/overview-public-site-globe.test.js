@@ -40,8 +40,9 @@ const reply = (data, status = 200) => ({ status, ok: status >= 200 && status < 3
 
 function harness(initial) {
   const ids = Object.fromEntries(['globeCanvas', 'globeCard', 'globeCity', 'globeLabel', 'globeCount', 'globePeople', 'globeLinks', 'globeEyebrow', 'globeYou', 'globeYouCta', 'globeEmpty', 'globeFeed', 'globeFeedLabel', 'globeTopics', 'globeSince', 'globeSinceLabel', 'globePlay'].map((id) => [id, new Element()]));
-  const requests = []; const documentEvents = {}; const languageListeners = [];
+  const requests = []; const languageListeners = [];
   let respond = () => reply(initial);
+  let nextPoll;
   ids.globeCanvas.getContext = () => new Proxy({ createRadialGradient: () => ({ addColorStop() {} }) }, { get(target, key) { return target[key] ?? (() => {}); } });
   const i18n = {
     lang: 'en',
@@ -49,20 +50,26 @@ function harness(initial) {
     onChange(fn) { languageListeners.push(fn); },
   };
   const window = { IntersectionObserver: true, devicePixelRatio: 1, matchMedia: () => ({ matches: true }), addEventListener() {}, nodalI18n: i18n };
-  const document = { hidden: false, getElementById: (id) => ids[id] || null, createElement: () => new Element(), addEventListener(type, listener) { documentEvents[type] = listener; } };
+  const document = { hidden: false, getElementById: (id) => ids[id] || null, createElement: () => new Element(), addEventListener() {} };
   const context = vm.createContext({
     window, document, console, Event, AbortSignal, performance: { now: () => 1000 },
     IntersectionObserver: class { observe() {} },
     requestAnimationFrame: () => 1, cancelAnimationFrame() {},
-    setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {},
+    setTimeout(callback) { nextPoll = callback; return callback; },
+    clearTimeout(timer) { if (timer === nextPoll) nextPoll = undefined; },
+    setInterval: () => 1, clearInterval() {},
     fetch: async (path, options) => { requests.push({ path, headers: options.headers }); return respond(path, options); },
   });
   for (const file of ['globe-geo', 'globe']) vm.runInContext(script(file), context);
   return {
     ids, requests,
     respond(fn) { respond = fn; },
-    // a poll as the visibility handler runs one (it skips the wait between polls)
-    poll: () => documentEvents.visibilitychange(),
+    poll() {
+      assert.equal(typeof nextPoll, 'function', 'the visible globe scheduled its next poll');
+      const callback = nextPoll;
+      nextPoll = undefined;
+      callback();
+    },
     language(lang) { i18n.lang = lang; languageListeners.forEach((fn) => fn(lang)); },
     chips: () => ids.globeTopics.children,
     chipText: () => ids.globeTopics.children.map((chip) => chip.textContent),

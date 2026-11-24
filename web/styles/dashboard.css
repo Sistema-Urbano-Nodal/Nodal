@@ -1,3 +1,6 @@
+html[data-overview-pending] { opacity: 0; }
+/* Modal dialogs paint in the top layer, outside their ancestor's compositing group. */
+html[data-overview-pending] dialog, html[data-overview-pending] dialog::backdrop { display: none; }
 /* NODAL member console — a plan sheet, not a page of cards.
    The viewport is the sheet: an ink nav rail, a paper work surface and a beige
    context column, edge to edge, divided by ink rules instead of gaps and

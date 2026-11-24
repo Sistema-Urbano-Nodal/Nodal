@@ -66,18 +66,14 @@ test('server pages get their policy from the header and carry no CSP meta that w
   }
 });
 
-/* Chromium keeps any page that is not no-store in the back/forward cache, filled-in fields and all, and no page reads
-   the session again on pageshow(persisted). A kept fiiu.html showed the registration form (email, DNI, age) after
-   signing out and pressing Back, and a kept fiiu-talk.html the attendee-only conversation. Until the pages check the
-   session on restore, every page the server sends stays out of every cache, for every visitor. */
-test('no page is kept for Back, so signing out never leaves a restorable copy of personal data',async t=>{
+test('only the session-checked dashboard and profile shells can be kept for Back',async t=>{
   const {get}=await boot(t);
   const checked=new Set();
   for(const page of SERVER_PAGES)for(const actor of [null,'member','admin']){
     const response=await get(page,actor);await response.arrayBuffer();
     // A redirect to sign-in or a JSON refusal is not a page.
     if(!/^text\/html/.test(response.headers.get('content-type')||''))continue;
-    assert.equal(response.headers.get('cache-control'),'no-store',`${page} ${actor||'guest'}`);checked.add(page);
+    assert.equal(response.headers.get('cache-control'),['dashboard.html','profile.html'].includes(page)?'private, no-cache':'no-store',`${page} ${actor||'guest'}`);checked.add(page);
   }
   assert.deepEqual([...checked].sort(),SERVER_PAGES.filter(page=>!MOVED.has(page)).sort());
 });

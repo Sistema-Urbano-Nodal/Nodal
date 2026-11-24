@@ -78,7 +78,7 @@ const MAX_BODY = 32 * 1024;
 // /api/fiiu/checkin still requires a session.
 const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html', '/dashboard.html', '/messages.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html', '/admin-home.html']);
 const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'messages.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'terminos-fundadores.html', 'fundadores.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html', 'admin-home.html']);
-const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'buc.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'messages.js', 'messages-i18n.js', 'workspace-notifications.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js', 'membership-terms.js', 'fundadores.js', 'node-request.js', 'visit.js', 'admin-nav.js', 'admin-home.js']);
+const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'overview-return.js', 'buc.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'messages.js', 'messages-i18n.js', 'workspace-notifications.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js', 'membership-terms.js', 'fundadores.js', 'node-request.js', 'visit.js', 'admin-nav.js', 'admin-home.js']);
 /* /admin is the short address of the administrators' front door, the metrics home. */
 const ADMIN_ALIASES = new Set(['/admin']);
 /* The check-in screen shows <host>/checkin for phones that cannot scan. Typed by hand it may come in any case, without
@@ -118,6 +118,8 @@ const SIGNUP_EMAIL_HOURLY_LIMIT = envInt('SIGNUP_EMAIL_HOURLY_LIMIT', 200);
 const SESSION_REFRESH_FAILURE_LIMIT = envInt('SESSION_REFRESH_FAILURE_LIMIT', 30);
 const SUPABASE_ACCESS_COOKIE = 'nodal_session';
 const SUPABASE_REFRESH_COOKIE = 'nodal_refresh';
+const VIEW_CHECK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const memberViewStamp = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /* Routes that never read the session: resolving one would only cost provider calls.
    The FIIU programme is the same for everyone, so signed-in readers share the
    public per-address budget guests use. The conversation pulse is the same for
@@ -1041,9 +1043,8 @@ async function serveStatic(req, res, canonical, pilotMode, { status = 200 } = {}
       ...(canonical==='/dashboard.html'?{'Permissions-Policy':'camera=(), microphone=(), geolocation=(self), payment=()'}:{}),
       ...(['/reset-password.html','/accept-invitation.html'].includes(canonical) ? { 'Referrer-Policy': 'no-referrer' } : {}),
       'Content-Type': type,
-      // no-store also keeps pages out of the back/forward cache: no page reads the session again on pageshow, so a
-      // restored copy would show the last person's form and conversation after they sign out and press Back.
-      'Cache-Control': type.startsWith('text/html') ? 'no-store' : STATIC_CACHE_CONTROL,
+      // These shells hide their live contents on departure and confirm the current member on restoration.
+      'Cache-Control': ['/dashboard.html', '/profile.html'].includes(canonical) ? 'private, no-cache' : type.startsWith('text/html') ? 'no-store' : STATIC_CACHE_CONTROL,
     });
     res.end(req.method === 'HEAD' ? undefined : data);
   } catch {
@@ -1430,6 +1431,18 @@ export function createApp({
      revisions are one database-wide counter; SQLite's are per connection, so
      there the key is also tied to this server. */
   const revisionScope = repository?.kind === 'supabase' ? 'db' : randomUUID();
+  // SQLite's change counter belongs to this connection; it can restart at the same value on a new one.
+  const directoryViewRevision = revision => revision == null ? null : revisionScope + ':' + revision;
+  // Hosted member projections come entirely from the three tables covered by the network-revision triggers.
+  // SQLite already returns its full member in a single local session read.
+  function stampForView(user, revision) {
+    if (repository.kind !== 'supabase') return memberViewStamp(user);
+    return revision == null ? null : memberViewStamp(['member-view-v1', user.id, user.permission, revision]);
+  }
+  async function currentViewRevision() {
+    try { return directoryViewRevision(await repository.getNetworkRevision?.()); }
+    catch { return null; } // An unavailable counter requires a full profile on the next return.
+  }
   async function buildUnlisted(snapshot, userId) {
     const key = `rec:v5:${revisionScope}:${userId}:${snapshot.revision}`;
     const cached = await cache.get(key);
@@ -1468,7 +1481,9 @@ export function createApp({
         '/api/auth/course-invitation/complete',
       ].includes(pathname);
       const needsSession = pageNeedsSession || (isApiRequest && !authenticatesRequest && !SESSIONLESS_API.has(pathname));
-      const authorizationOnly = pageNeedsSession || pathname === '/api/auth/state'
+      const stampedProfile = req.method === 'GET' && pathname === '/api/auth/me' && req.headers['x-nodal-view'] === '1';
+      const hostedView = repository?.kind === 'supabase' && req.method === 'GET' && pathname === '/api/auth/view';
+      const authorizationOnly = hostedView || pageNeedsSession || pathname === '/api/auth/state'
         || /^\/api\/(?:fiiu|admin\/fiiu)(?:\/|$)/.test(pathname)
         || /^\/api\/(?:admin\/)?news(?:\/|$)/.test(pathname)
         || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback(?:\/|$)|admin\/feedback(?:\/|$))/.test(pathname)
@@ -1477,9 +1492,17 @@ export function createApp({
       const optionalSession = (req.method === 'GET' || req.method === 'HEAD')
         && (isApiRequest ? OPTIONAL_SESSION_API.test(pathname) || COVER_ROUTE.test(pathname) : canonical === '/login.html');
       let session = { user: null, cookies: [] };
+      let profileRevision = null;
       if (useDb && needsSession) {
         try {
-          session = await (req.method === 'GET' && CHAT_POLL.test(pathname) ? resolvePollSession : resolveRequestSession)(req, { authorizationOnly });
+          const options = { authorizationOnly };
+          if (hostedView) options.speculativeProfile = false;
+          if (stampedProfile && repository.kind === 'supabase') {
+            // GoTrue must confirm the identity before this read. Capture the revision BEFORE the bundle,
+            // or a concurrent profile change could permanently label old answers with the new revision.
+            options.beforeProfileRead = async () => { profileRevision = await currentViewRevision(); };
+          }
+          session = await (req.method === 'GET' && CHAT_POLL.test(pathname) ? resolvePollSession : resolveRequestSession)(req, options);
         } catch (err) {
           /* The session service is down (or rate limiting this server). A route
              that works without a member is served signed out, with the cookies
@@ -2025,7 +2048,29 @@ export function createApp({
 
       if (useDb && req.method === 'GET' && pathname === '/api/auth/me') {
         if (!requireAuth(res, sessionUser)) return;
-        send(res, 200, { user: repository.toApiUser(sessionUser) });
+        const user = repository.toApiUser(sessionUser);
+        const stamp = stampedProfile && stampForView(user, profileRevision);
+        send(res, 200, { user }, stamp ? { 'X-Nodal-View-Stamp': stamp } : {});
+        return;
+      }
+
+      if (useDb && req.method === 'GET' && pathname === '/api/auth/view') {
+        if (!requireAuth(res, sessionUser)) return;
+        const scope = url.searchParams.get('scope');
+        if (scope !== 'profile' && scope !== 'dashboard') {
+          send(res, 400, { error: 'unknown view' });
+          return;
+        }
+        const revision = hostedView || scope === 'profile' ? await currentViewRevision() : null;
+        const stamp = stampForView(repository.toApiUser(sessionUser), revision);
+        const directoryRevision = scope === 'profile' ? revision : null;
+        const check = url.searchParams.get('check');
+        const cacheable = VIEW_CHECK_ID.test(check || '') && !res.hasHeader('Set-Cookie');
+        send(res, 200, { stamp, directoryRevision }, {
+          'Cache-Control': cacheable ? 'private, max-age=5, must-revalidate' : 'no-store',
+          'CDN-Cache-Control': 'no-store',
+          'Vary': 'Cookie, Authorization',
+        });
         return;
       }
 
@@ -2172,11 +2217,14 @@ export function createApp({
           if (!requireAuth(res, sessionUser)) return;
           if (!throttle(readLimiter, res, req, sessionUser, 'directory')) return;
           const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 200));
-          const rows = (await networkSnapshots.read()).rows;
+          const snapshot = await networkSnapshots.read();
+          const rows = snapshot.rows;
           const cursor = url.searchParams.get('cursor');
           const index = cursor ? rows.findIndex(row => row.id === cursor) : -1;
           if (cursor && index < 0) { send(res, 400, { error: 'directory cursor expired; restart pagination' }); return; }
           const page = rows.slice(index + 1, index + 1 + Math.floor(limit));
+          const revision = directoryViewRevision(snapshot.revision);
+          if (snapshot.settled !== false && revision !== null) res.setHeader('X-Nodal-Directory-Revision', revision);
           send(res, 200, {
             total: rows.length,
             nextCursor: index + 1 + page.length < rows.length ? page.at(-1).id : null,

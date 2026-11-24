@@ -332,6 +332,17 @@ async function consoleBlock(respond,{when=DURING}={}){
 }
 const feed=(me,live=()=>LIVE())=>path=>path==='/api/fiiu/live'?live():path==='/api/fiiu?kind=news'?festival():path==='/api/fiiu/registration'?me():path==='/api/fiiu/pulse'?{questions:[]}:path==='/api/admin/fiiu/summary'?{summary:{lab:{pending:0}}}:{status:404,data:{error:'not found'}};
 const registered=()=>({user,registration:saved,attendance:[],isAdmin:false});
+test('quick dashboard returns keep the festival registration, news and live line until its next poll is due',async()=>{
+ const h=await consoleBlock(feed(()=>registered()));
+ const initial=[...h.requests],line=h.line(),headline=key(line,'liveTitle');
+ h.advance(9000);await h.visible();await h.visible();
+ assert.deepEqual(h.requests,initial);
+ assert.equal(key(line,'liveTitle'),headline);
+ h.advance(22000);await h.visible();await flush();
+ assert.deepEqual(h.requests.slice(initial.length),['/api/fiiu/live']);
+ assert.equal(key(line,'liveTitle'),headline);
+});
+
 // Registered for day2-am only, so the block's "next for you" is not the session under way.
 const elsewhere=()=>({user,registration:{...saved,answers:{...answers,activities:['day2-am']}},attendance:[],isAdmin:false});
 

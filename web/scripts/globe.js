@@ -618,6 +618,7 @@
   let pollTimer = null;
   let inFlight = false;
   let backoff = POLL_MS;
+  let nextPollAt = 0;
   let etag = '';
   let refreshRevision = 0;
   let refreshQueued = false;
@@ -625,6 +626,7 @@
   function refreshPlaces() {
     refreshRevision += 1;
     refreshQueued = true;
+    nextPollAt = 0;
     etag = '';
     state.picked = -1;
     showPlace(null);
@@ -835,7 +837,7 @@
       state.visible = entries.some(entry => entry.isIntersecting);
       syncAnimation();
       if (!state.visible) clearTimeout(pollTimer);
-      else if (!wasVisible) { backoff = POLL_MS; poll(); }
+      else if (!wasVisible) resumePolling();
     }, { rootMargin: '80px' });
     io.observe(canvas);
   }
@@ -854,16 +856,22 @@
   resize();
   syncAnimation();
   function schedule() {
+    nextPollAt = Date.now() + backoff + Math.random() * Math.min(3000, backoff * 0.2);
+    resumePolling();
+  }
+  // Returning to the map should resume its existing refresh deadline, even when the last response was a 304.
+  function resumePolling() {
     clearTimeout(pollTimer);
-    if (document.hidden || !state.visible) return;
-    pollTimer = setTimeout(poll, backoff + Math.random() * Math.min(3000, backoff * 0.2));
+    if (inFlight || document.hidden || !state.visible) return;
+    const remaining = nextPollAt - Date.now();
+    if (remaining > 0 && !refreshQueued) pollTimer = setTimeout(poll, remaining);
+    else poll();
   }
 
   poll();
   document.addEventListener('visibilitychange', () => {
     syncAnimation();
     if (document.hidden) { clearTimeout(pollTimer); return; }
-    backoff = POLL_MS;
-    poll();
+    resumePolling();
   });
 })();

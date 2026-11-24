@@ -21,7 +21,7 @@ test('the page is the desk\'s frame with the home\'s assets', () => {
   assert.deepEqual(sheets, ['locale.css', 'fonts.css', 'styles.css', 'admin.css', 'admin-home.css', 'workspace-notifications.css', 'admin-nav.css']);
   assert.match(head, /<script src="locale\.js\?v=\d+[a-z]?"><\/script>/);
   const deferred = [...head.matchAll(/<script defer src="([^"?]+)[^>]*>/g)].map((m) => m[1]);
-  assert.deepEqual(deferred, ['nav.js', 'script.js', 'admin-nav.js', 'admin-home.js', 'i18n.js', 'workspace-notifications.js', 'visit.js']);
+  assert.deepEqual(deferred, ['nav.js', 'script.js', 'admin-nav.js', 'admin-home.js', 'i18n.js', 'workspace-notifications.js', 'overview-return.js', 'visit.js']);
   assert.match(head, /<script defer src="visit\.js\?v=\d+[a-z]?" data-staff><\/script>\s*$/);
   assert.doesNotMatch(html, /i18n-dashboard/);
   assert.doesNotMatch(html, /data-i18n="(?:ops|d|p|y)\./);

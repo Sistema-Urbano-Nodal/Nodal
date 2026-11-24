@@ -992,7 +992,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       }
       return { status: 200, passwordChanged: true, cookies: clear };
     },
-    async resolveSession(req, { authorizationOnly = false } = {}) {
+    async resolveSession(req, { authorizationOnly = false, speculativeProfile = true, beforeProfileRead } = {}) {
       const cookies = parseCookies(req.headers.cookie);
       const accessToken = cookies.get(ACCESS_COOKIE);
       const refreshToken = cookies.get(REFRESH_COOKIE);
@@ -1006,7 +1006,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
              the server drops that cookie once an address runs out of refresh failures,
              so forged access tokens alone never buy a second upstream read. */
           const verifying = authUserFromToken(accessToken);
-          claimed = authorizationOnly && refreshToken ? unverifiedUuidSub(accessToken) : null;
+          claimed = authorizationOnly && speculativeProfile && refreshToken ? unverifiedUuidSub(accessToken) : null;
           profileRead = claimed ? first(admin.rest('profiles', { query: profileQuery(claimed) })).catch(() => null) : null;
           authUser = await verifying;
           verified = true;
@@ -1019,6 +1019,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         // GoTrue refused this access token (401/403) and a refresh token remains: the refresh below decides.
         if (verified) {
           if (!authUser?.id) return { user: null, cookies: clearSessionCookies(env) };
+          if (beforeProfileRead) await beforeProfileRead();
           const user = await sessionProfile(async () => {
             const profile = profileRead && authUser.id === claimed ? await profileRead : null;
             return profile ? toApiUserFromSupabase({ profile }) : existingOrEnsureProfile(authUser, { authorizationOnly });
@@ -1045,6 +1046,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         return { user: null, cookies: clearSessionCookies(env) };
       }
       if (!authUser?.id) return { user: null, cookies: clearSessionCookies(env) };
+      if (beforeProfileRead) await beforeProfileRead();
       const user = await sessionProfile(() => existingOrEnsureProfile(authUser, { authorizationOnly }));
       // a refresh must not hand a suspended member a fresh pair of cookies
       if (!isActive(user)) return { user: null, cookies: clearSessionCookies(env) };

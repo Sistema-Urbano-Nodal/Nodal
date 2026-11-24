@@ -65,7 +65,7 @@ const flush = async () => { for (let i = 0; i < 8; i += 1) await new Promise((re
 
 // The whole console (i18n.js + dashboard.js) on the markup's own placeholders, with /api/auth/me scripted.
 const LIVE_IDS = ['greetWord', 'userName', 'greetSub', 'loadRetry', 'sheetRole', 'userBtn', 'searchInput', 'notifBtn', 'userDialog', 'partCDialog'];
-function liveConsole({ lang = 'es', replies }) {
+function liveConsole({ lang = 'es', replies, nodalMemberSession }) {
   const html = read('web', 'pages', 'dashboard.html');
   const nodes = LIVE_IDS.map((id) => {
     const node = new Node(id);
@@ -98,7 +98,7 @@ function liveConsole({ lang = 'es', replies }) {
       return { ok: reply.status === undefined, status: reply.status || 200, json: async () => reply };
     },
   };
-  context.window = { location, history, addEventListener() {}, matchMedia: () => ({ matches: true }) };
+  context.window = { location, history, nodalMemberSession, addEventListener() {}, matchMedia: () => ({ matches: true }) };
   vm.createContext(context);
   vm.runInContext(read('web', 'scripts', 'i18n-dashboard.js'), context);
   vm.runInContext(read('web', 'scripts', 'i18n.js'), context);
@@ -106,6 +106,13 @@ function liveConsole({ lang = 'es', replies }) {
   return { node: (id) => document.getElementById(id), requests, location, i18n: context.window.nodalI18n };
 }
 const member = { user: { id: 'member', fullName: 'Ana Quispe', title: 'Member', city: 'Lima', topics: [{ name: 'Mobility', level: 1 }], partC: {} } };
+
+test('the dashboard uses the member session already requested by the page', async () => {
+  const h = liveConsole({ replies: [], nodalMemberSession: Promise.resolve(member) });
+  await flush();
+  assert.deepEqual(h.requests, []);
+  assert.equal(h.node('userName').textContent, 'Ana Quispe');
+});
 
 test('the console shows the staff group (Team label and admin link) to admins only', async () => {
   assert.equal((await consoleFor(async () => ({ user: { id: 'a', permission: 'admin' } }))).hidden, false);

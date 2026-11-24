@@ -29,7 +29,7 @@
     'Para compartilhar seu perfil, autorize o diretório na Parte C.',
   ];
   const shareHidden = () => SHARE_HIDDEN[({ en: 0, es: 1, pt: 2 })[I18N?.lang] ?? 0];
-  let currentProfile = null, profileFailed = false, networkPeople = [];
+  let currentProfile = null, profileFailed = false, networkPeople = null;
   let signalsHost = document.querySelector('.pf-locked');
 
   const $ = (id) => document.getElementById(id);
@@ -174,7 +174,11 @@
 
   function normalize(user) {
     return {
-      ...user,
+      id: user.id,
+      photoUrl: user.photoUrl || '',
+      createdAt: user.createdAt,
+      linkedin: user.linkedin || '',
+      assessed: Boolean(user.assessed),
       fullName: user.fullName || user.name || 'Member',
       title: user.title || user.role || 'Member',
       city: user.city || '',
@@ -324,13 +328,14 @@
     set('pfActConn', '0');
     set('pfActCourses', '0');
     set('pfActSince', new Date(user.createdAt || Date.now()).getFullYear());
-    renderConnections(user);
   }
   function renderConnections(user) {
     const list = $('pfConnList');
-    if (list) {
+    if (list && networkPeople) {
+      const panel = list.closest('.pf-panel');
+      if (panel) panel.hidden = false;
       const empty = el('li');
-          empty.append(el('span', '', t('p.noConnections')));
+      empty.append(el('span', '', t('p.noConnections')));
       list.replaceChildren(empty);
       const people = networkPeople.filter((u) => u.id !== user.id).slice(0, 4);
       if (people.length) {
@@ -370,29 +375,83 @@
     }
   }
   I18N?.onChange(() => {
-    if (currentProfile) render(currentProfile.user, currentProfile.isSelf);
+    if (currentProfile) {
+      render(currentProfile.user, currentProfile.isSelf);
+      renderConnections(currentProfile.user);
+    }
     else if (profileFailed) renderFailure();
   });
 
   /* ?id=<member> opens that member's card; no id opens your own */
   const wanted = new URLSearchParams(location.search).get('id');
   const endpoint = wanted ? `/api/users/${encodeURIComponent(wanted)}` : '/api/auth/me';
-  const profileRequest = api(endpoint);
-  /* the sidebar shows four people: ask for a few, alongside the profile; a plain fetch so a 401 redirects only once */
-  const peopleRequest = $('pfConnList') ? fetch('/api/users?limit=5').then((r) => (r.ok ? r.json() : {})).catch(() => ({})) : null;
+  const session = window.nodalMemberSession;
+  let viewerId, directoryRevision = null, visit = 0;
+  window.addEventListener?.('pagehide', () => { ++visit; });
+
+  // Keep only the fields drawn in the People panel, with the revision of the actual list response.
+  async function readPeople() {
+    const r = await fetch('/api/users?limit=5');
+    if (!r.ok) throw new Error('directory unavailable');
+    const data = await r.json();
+    if (!Array.isArray(data.users)) throw new Error('invalid directory');
+    return {
+      people: data.users.map(({id, name, role}) => ({id, name, role})),
+      revision: r.headers?.get('X-Nodal-Directory-Revision') ?? null,
+    };
+  }
+  function setPeople(result) {
+    const changed = JSON.stringify(networkPeople) !== JSON.stringify(result.people);
+    networkPeople = result.people;
+    directoryRevision = result.revision;
+    if (changed && currentProfile) renderConnections(currentProfile.user);
+  }
+
+  // Use the viewer request started in the head for this visit, including when the URL names the current member.
+  const profileRequest = session ? session.then(({user}) => {
+    viewerId = user?.id;
+    if (user && (!wanted || wanted === viewerId)) return {user, self:true};
+    return api(endpoint);
+  }) : api(endpoint);
+  const initialVisit = visit;
+  if ($('pfConnList')) {
+    readPeople().then(result => { if (initialVisit === visit) setPeople(result); }).catch(() => {});
+  }
   profileRequest
     .then((data) => {
+      if (initialVisit !== visit) return;
       currentProfile = {user: normalize(data.user), isSelf: wanted ? data.self === true : data.self !== false};
+      if (currentProfile.isSelf) viewerId = data.user.id;
       render(currentProfile.user, currentProfile.isSelf);
+      renderConnections(currentProfile.user);
       if (currentProfile.isSelf && location.hash === '#pfChoosePhoto') $('pfChoosePhoto')?.focus();
-      peopleRequest?.then((data) => {
-        networkPeople = Array.isArray(data?.users) ? data.users : [];
-        renderConnections(currentProfile.user);
-      }).catch(() => {});
     })
     .catch((err) => {
+      if (initialVisit !== visit) return;
       if (String(err.message).includes('authentication')) return;   // redirecting
       profileFailed = true;
       renderFailure();
     });
+
+  window.nodalProfile = {
+    async resume(user, revision) {
+      if (!currentProfile || !viewerId || user?.id !== viewerId) return false;
+      const current = ++visit;
+      const refreshPeople = $('pfConnList') && (directoryRevision === null || revision !== directoryRevision);
+      // A member may have withdrawn directory consent since this document was last visible.
+      // For another member's card, check access again even if just the viewer looks unchanged.
+      const [card, sidebar] = await Promise.all([
+        currentProfile.isSelf ? {user, self:true} : api(endpoint),
+        refreshPeople ? readPeople() : null,
+      ]);
+      if (current !== visit || card.user?.id !== currentProfile.user.id || (card.self === true) !== currentProfile.isSelf) return false;
+      const fresh = normalize(card.user);
+      if (sidebar) setPeople(sidebar);
+      if (JSON.stringify(fresh) !== JSON.stringify(currentProfile.user)) {
+        currentProfile.user = fresh;
+        render(fresh, currentProfile.isSelf);
+      }
+      return true;
+    },
+  };
 })();

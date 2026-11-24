@@ -27,7 +27,7 @@ for (const mode of [true, false]) test(`initial HTML includes the actual pilot m
     const banners = [...html.matchAll(/<div\b[^>]*data-pilot-banner[^>]*>/g)];
     assert.equal(banners.length, 1, page);
     assert.equal(/\shidden\b/.test(banners[0][0]), !mode, page);
-    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('cache-control'), ['dashboard', 'profile'].includes(page) ? 'private, no-cache' : 'no-store');
     assert.match(response.headers.get('content-security-policy'), /font-src 'self'/);
   }
   const home = await (await fetch(base + '/')).text();

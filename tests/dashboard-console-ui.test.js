@@ -511,7 +511,7 @@ test('on phones the globe and its 195 KB coastline load only as the network band
   g.near(false);
   assert.deepEqual(g.appended, []);
   g.near(true);
-  assert.deepEqual(g.appended.map((s) => s.src), ['coastline.js?v=3', 'globe-geo.js?v=1', 'globe.js?v=32']);
+  assert.deepEqual(g.appended.map((s) => s.src), ['coastline.js?v=3', 'globe-geo.js?v=1', 'globe.js?v=20261123h']);
   assert.ok(g.appended.every((s) => s.tagName === 'script' && s.async === false), 'inserted scripts run in order, coastline first');
   assert.equal(g.disconnected(), true);
   g.near(true);

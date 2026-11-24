@@ -110,7 +110,7 @@ test('profile asks for its few connections alongside the profile instead of afte
  h.run('profile');await flush();assert.deepEqual(h.requests,['/api/users?limit=5'],'the directory request does not wait for the profile');
  release();await flush();assert.deepEqual(h.requests,['/api/users?limit=5','/api/auth/me']);assert.match(h.document.getElementById('pfConnList').textContent,/Other member · Architect/);
  const failed=profileHarness({respond:path=>path==='/api/users?limit=5'?{status:500}:{user:{id:'member',fullName:'Ana Silva'}}});failed.run('profile');await flush();
- assert.equal(failed.document.getElementById('pfName').textContent,'Ana Silva');assert.match(failed.document.getElementById('pfConnList').textContent,/No connections yet/);
+ assert.equal(failed.document.getElementById('pfName').textContent,'Ana Silva');assert.equal(failed.document.getElementById('pfConnList').textContent,'');
 });
 test('profile failure messages follow the chosen language without retrying the failed request',async()=>{
  const h=profileHarness({respond:()=>({status:404,error:'missing'})});h.run('profile');await flush();const initial=h.document.getElementById('pfRole').textContent;h.api.apply('pt');assert.notEqual(h.document.getElementById('pfRole').textContent,initial);assert.equal(h.document.getElementById('pfRole').textContent,h.api.t('p.notFoundWhy'));assert.deepEqual(h.requests,['/api/auth/me','/api/users?limit=5']);
@@ -154,4 +154,49 @@ test('a previous-language catalog response cannot paint during the new-language 
  const fireTimer=()=>{const [id,fn]=timers.entries().next().value;timers.delete(id);return fn();};h.run('dashboard');await flush();input.listeners.input();const old=fireTimer();await flush();h.api.apply('pt');
  replies[0]({items:[{id:'project',title:'English project title',kind:'project'}]});await old;assert.doesNotMatch(pop.textContent,/English project title/);assert.equal(input.value,'metro');
  const current=fireTimer();await flush();replies[1]({items:[{id:'project',title:'Projeto em português',kind:'project'}]});await current;assert.match(pop.textContent,/Projeto em português/);assert.equal(h.requests.filter(path=>path.startsWith('/api/catalog')).length,2);
+});
+
+
+test('returning to the same profile reuses its authenticated card and unchanged People rows; changed directory data replaces only People', async()=>{
+ const self={id:'actor',fullName:'Ana Silva',title:'Planner'};
+ let revision='1', people=[{id:'p1',name:'Beto Quispe',role:'Architect'}];
+ const h=profileHarness({respond:()=>({users:people})});
+ const fetch=h.context.fetch;
+ h.context.fetch=async path=>({...await fetch(path),headers:{get:name=>name==='X-Nodal-Directory-Revision'?revision:null}});
+ h.context.window.nodalMemberSession=Promise.resolve({user:self});
+ h.run('profile');await flush();
+ assert.deepEqual(h.requests,['/api/users?limit=5']);
+ const list=h.document.getElementById('pfConnList'), buttons=h.document.getElementById('pfBtns');
+ const row=list.children.at(-1), edit=buttons.children[0], resume=h.context.window.nodalProfile.resume;
+ assert.equal(await resume(self,revision),true);
+ assert.equal(list.children.at(-1),row);assert.equal(buttons.children[0],edit);
+ assert.deepEqual(h.requests,['/api/users?limit=5']);
+ assert.equal(await resume({...self,fullName:'Ana Torres'},revision),true);
+ assert.equal(h.document.getElementById('pfName').textContent,'Ana Torres');
+ assert.equal(list.children.at(-1),row);
+ revision='2';people=[];
+ assert.equal(await resume({...self,fullName:'Ana Torres'},revision),true);
+ assert.doesNotMatch(list.textContent,/Beto Quispe/);
+ assert.deepEqual(h.requests,['/api/users?limit=5','/api/users?limit=5']);
+ assert.equal(await resume({id:'new-account'},revision),false);
+ assert.equal(h.requests.length,2);
+});
+
+test('a peer card requires current visibility before reuse and cannot change into a different account’s self card', async()=>{
+ const viewer={id:'actor',fullName:'Viewer'}, peer={id:'peer',fullName:'Peer'};
+ let visible=true;
+ const h=profileHarness({url:'https://nodal.test/profile.html?id=peer',respond:path=>{
+  if(path==='/api/users?limit=5')return {users:[]};
+  return visible?{user:peer,self:false}:{status:404};
+ }});
+ h.context.window.nodalMemberSession=Promise.resolve({user:viewer});
+ h.run('profile');await flush();
+ assert.equal(h.document.getElementById('pfName').textContent,'Peer');
+ const resume=h.context.window.nodalProfile.resume;
+ assert.equal(await resume(viewer,null),true);
+ const n=h.requests.length;
+ assert.equal(await resume(peer,null),false);assert.equal(h.requests.length,n);
+ visible=false;
+ await assert.rejects(resume(viewer,null),{status:404});
+ assert.equal(h.requests.filter(path=>path==='/api/users/peer').length,3);
 });

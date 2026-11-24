@@ -204,7 +204,7 @@ function adminHarness(fetchImpl = () => Promise.reject(new Error('network must n
   return { api: context.window.__adminTest, ids, location: context.location, i18n: i18nApi, confirms };
 }
 
-function dashboardSearchHarness(apiImpl) {
+function dashboardSearchHarness(apiImpl, clock = Date) {
   let nextTimerId = 1;
   const timers = new Map();
   const setTimer = (callback) => {
@@ -270,6 +270,7 @@ function dashboardSearchHarness(apiImpl) {
     AbortController,
     URLSearchParams,
     api: apiImpl,
+    Date: clock,
     byId,
     clearTimeout: clearTimer,
     el,
@@ -1383,6 +1384,29 @@ test('dashboard ignores an abort-insensitive People response after entering a ca
   });
 });
 
+test('switching between warm dashboard catalog tabs shows their own results immediately and rechecks when stale', async () => {
+  let now = 1000;
+  const kinds = [];
+  const h = dashboardSearchHarness(async path => {
+    const kind = new URL(path, 'https://nodal.test').searchParams.get('kind');
+    kinds.push(kind);
+    return {items: [{title: kind, kind, id: kind}]};
+  }, {now: () => now});
+  h.input.value = 'Lima';
+  for (const section of ['Projects', 'Opportunities']) {
+    h.activate(section); await h.runNextTimer();
+  }
+  for (const [section, title] of [['Projects','project'],['Opportunities','opportunity']]) {
+    h.activate(section);
+    assert.match(renderedText(h.pop),new RegExp(title));
+    assert.equal(h.pendingTimers(),0);
+  }
+  assert.deepEqual(kinds,['project','opportunity']);
+  now += 61000;
+  h.activate('Projects'); await h.runNextTimer();
+  assert.deepEqual(kinds,['project','opportunity','project']);
+});
+
 // A typed address would otherwise sit in a URL, and so in the platform's request logs: People posts it in the body.
 test('dashboard People search sends what was typed in a POST body, never in the URL', async () => {
   const requests = [];
@@ -1442,8 +1466,6 @@ test('dashboard catalog scopes use the public API while People remains consent-g
   assert.match(source, /d\.search\.catalogSearching/);
   assert.match(source, /d\.search\.catalogUnavailable/);
   assert.match(source, /d\.search\.catalogEmpty/);
-  assert.match(source, /catalogReady\s*=\s*false/);
-  assert.match(source, /catalogReady\s*&&\s*catalogScope\s*===\s*scope/);
 });
 
 test('recommendation asynchronous states are translated and never synthesize records', () => {

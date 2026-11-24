@@ -1419,10 +1419,9 @@
   let peopleTimer = null;
   let peopleAbort = null;
   let peopleSequence = 0;
-  let catalogQuery = '';
-  let catalogScope = '';
-  let catalogHits = [];
-  let catalogReady = false;
+  // Keep one successful answer per catalog tab for a minute in this document.
+  // A language switch clears titles and kind labels together.
+  const catalogByScope = new Map();
   let catalogTimer = null;
   let catalogAbort = null;
   let catalogSequence = 0;
@@ -1496,21 +1495,16 @@
       try {
         const data = await api(`/api/catalog?${params}`, { signal: catalogAbort.signal });
         if (sequence !== catalogSequence) return;
-        catalogHits = (Array.isArray(data.items) ? data.items : []).map((item) => ({
+        const hits = (Array.isArray(data.items) ? data.items : []).map((item) => ({
           label: item.title,
           meta: [item.organization, item.location, t(`catalog.kind.${item.kind}`)].filter(Boolean).join(' · '),
           href: `opportunities.html?${new URLSearchParams({ id: item.id })}`,
         }));
-        catalogQuery = query.toLowerCase();
-        catalogScope = scope;
-        catalogReady = true;
-        if (activeScope() === scope && searchInput.value.trim().toLowerCase() === catalogQuery) paint(catalogHits);
+        const normalized = query.toLowerCase();
+        catalogByScope.set(scope, {query: normalized, hits, until: Date.now() + 60000});
+        if (activeScope() === scope && searchInput.value.trim().toLowerCase() === normalized) paint(hits);
       } catch (err) {
         if (err.name === 'AbortError' || sequence !== catalogSequence) return;
-        catalogReady = false;
-        catalogQuery = '';
-        catalogScope = '';
-        catalogHits = [];
         if (activeScope() === scope && searchInput.value.trim().toLowerCase() === query.toLowerCase()) paint([], 'catalog-error');
       }
     }, 220);
@@ -1560,6 +1554,7 @@
     const typed = searchInput.value.trim();
     const q = typed.toLowerCase();
     const scope = activeScope();
+    clearTimeout(catalogTimer);
     if (scope !== 'People') cancelPeopleLookup();
     if (q.length < 2) { searchPop.hidden = true; return; }
     if (scope === 'People') {
@@ -1572,7 +1567,8 @@
     }
     // The catalog is searched with a GET: an address left in the box (switching from People) is never put in its URL.
     if (typed.includes('@')) { if (catalogAbort) catalogAbort.abort(); catalogSequence += 1; paint([]); return; }
-    if (catalogReady && catalogScope === scope && catalogQuery === q) { paint(catalogHits); return; }
+    const previous = catalogByScope.get(scope);
+    if (previous?.query === q && previous.until > Date.now()) { paint(previous.hits); return; }
     lookUpCatalog(scope, typed);
     paint(null);
   }
@@ -1721,15 +1717,32 @@
     clearTimeout(catalogTimer);
     catalogAbort?.abort();
     catalogSequence += 1;
-    catalogReady = false;
-    catalogQuery = '';
+    catalogByScope.clear();
     if (searchInput?.value.trim().length >= 2 && activeScope() !== 'People') runSearch();
   });
 
+  let dashboardPermission;
+  window.nodalDashboard = {
+    resume(user) {
+      if (!U || user.id !== U.id || user.permission !== dashboardPermission) return false;
+      const fresh = normalizeApiUser(user);
+      const needsRetry = byId('saveAlert')?.hidden === false && byId('saveRetry')?.hidden === false;
+      if (!profileWrites && !needsRetry && JSON.stringify(fresh) !== JSON.stringify(U)) {
+        U = fresh;
+        confirmedCity = U.city;
+        state.notifRead = U.notifRead;
+        window.nodalLocationCheck?.setUser(user);
+        applyAll();
+      }
+      return true;
+    },
+  };
+
   async function init() {
     try {
-      const data = await api('/api/auth/me');
+      const data = await (window.nodalMemberSession || api('/api/auth/me'));
       U = normalizeApiUser(data.user);
+      dashboardPermission = data.user.permission;
       // The staff group (Team label and the admin home link) is for admins; the server still gates the admin pages.
       const publish = byId('publishLink');
       const staffLabel = byId('staffLabel');
@@ -1834,7 +1847,7 @@
   (function loadGlobeOnApproach() {
     const band = byId('network');
     if (!band || !byId('globeCanvas')) return;
-    const scripts = ['coastline.js?v=3', 'globe-geo.js?v=1', 'globe.js?v=32'];
+    const scripts = ['coastline.js?v=3', 'globe-geo.js?v=1', 'globe.js?v=20261123h'];
     let observer = null;
     const load = () => {
       observer?.disconnect();

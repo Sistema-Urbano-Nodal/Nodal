@@ -135,10 +135,14 @@
  // festival page's programme, panel and feeds when its read answers, so the page lands a link (#registration, #add-<block>, a saved place) again then.
  function mount(host,{compact=false,event=null,organiser=false,registrationOpen=true,named=()=>null,known=()=>null,onFirstDraw=null}={}){
   let timer=null,stopped=false,busy=false,shownSig='',shownKeys=new Map(),last=null,first=onFirstDraw,open=0,pulsed=false,skip=0;
+  let nextRefreshAt=0;
   host.className='f-live'+(compact?' is-compact':'');host.hidden=true;
   const inDates=()=>{const today=limaDate();return !event||(today>=event.startsOn&&today<=event.endsOn);};
   const pause=()=>{if(timer!==null){clearInterval(timer);timer=null;}};
-  const follow=()=>{if(timer===null&&!stopped&&document.visibilityState!=='hidden')timer=setInterval(read,REFRESH);};
+  const follow=(delay=REFRESH)=>{
+   if(timer!==null||stopped||document.visibilityState==='hidden')return;
+   timer=setInterval(()=>{if(delay!==REFRESH)pause();return read();},delay);
+  };
   /* A redraw that changes the band's height moves everything under it. A browser with scroll anchoring keeps the reader's place itself (the content under
      the band reads where it was, right after the change); one without it (Safari on iPhone) does not, so when the reader is past the band the page moves by
      as much as that content did. */
@@ -185,7 +189,7 @@
        live. A pulse that fails keeps its last counts, and the line never says fewer than the read lists. */
     if(compact&&d.active&&talks(d.conversations).length>=LISTED&&typeof Fiiu.pulse==='function'){const counts=await Fiiu.pulse({fresh:pulsed});if(stopped)return;open=[...(counts?.open?.values()||[])].reduce((sum,n)=>sum+n,0);}
     else open=0;
-    pulsed=true;
+    pulsed=true;nextRefreshAt=Date.now()+REFRESH;
     if(!d.active){last=null;pause();hide();}
     else{last=d;show(d);follow();}
     drawn();
@@ -193,7 +197,15 @@
    catch(error){if(stopped)return;if(error?.status===401||error?.status===403){last=null;pause();prompt(error.status);drawn();return;}skip=Math.max(0,Math.ceil((error?.retryAfter||0)*1000/REFRESH)-1);follow();}
    finally{busy=false;}
   }
-  document.addEventListener?.('visibilitychange',()=>{if(stopped)return;if(document.visibilityState==='hidden')pause();else read();});
+  document.addEventListener?.('visibilitychange',()=>{
+   if(stopped)return;
+   if(document.visibilityState==='hidden'){pause();return;}
+   const wait=nextRefreshAt-Date.now();
+   // A quick return to the dashboard keeps the live line and its original deadline.
+   // A change in access or the festival dates must still be handled immediately.
+   if(compact&&last&&wait>0&&!known()&&(organiser||inDates()))follow(wait);
+   else read();
+  });
   // Numbers, averages and the {n} phrases are drawn in the reader's language, so a switch redraws the band from the last answer.
   window.nodalI18n?.onChange?.(()=>{if(!stopped&&last&&!host.hidden)show(last);});
   read();
