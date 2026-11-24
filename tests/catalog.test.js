@@ -173,9 +173,14 @@ test('SQLite forward migration creates catalog tables and versioned item writes 
   const { db, repo, admin } = sqliteCatalogRepo(t);
   assert.equal(db.prepare('SELECT version FROM schema_migrations WHERE version = 6').get().version, 6);
   assert.equal(db.prepare('SELECT version FROM schema_migrations WHERE version = 7').get().version, 7);
-  const created = await repo.createCatalogItem(completeCatalogInput({ actionMode: 'interest', actionUrl: '', deadlineAt: '2030-05-20T00:00:00.000Z' }), admin.id);
+  const input = completeCatalogInput({ actionMode: 'interest', actionUrl: '', deadlineAt: '2030-05-20T00:00:00.000Z' });
+  const created = await repo.createCatalogItem({ ...input, publicByline: '  Mesa urbana  ' }, admin.id);
   assert.equal(created.version, 1);
-  const updated = await repo.updateCatalogItem(created.id, { ...created, featured: false }, 1, admin.id);
+  assert.equal(created.publicByline, 'Mesa urbana');
+  const updated = await repo.updateCatalogItem(created.id, { ...input, featured: false }, 1, admin.id);
+  assert.equal(updated.publicByline, 'Mesa urbana', 'older editors that omit the optional byline preserve it');
+  const cleared = await repo.updateCatalogItem(created.id, { ...updated, publicByline: '' }, updated.version, admin.id);
+  assert.equal(cleared.publicByline, '');
   assert.equal(updated.version, 2);
   await assert.rejects(
     repo.updateCatalogItem(created.id, { ...updated, featured: true }, 1, admin.id),
@@ -281,12 +286,15 @@ test('SQLite upgrades real v6 catalog dates to canonical UTC before ordered pagi
     '2030-02-30',
     '2030-02-30',
   );
+  legacy.exec("CREATE TABLE nodal_news(id TEXT PRIMARY KEY, body TEXT); INSERT INTO nodal_news VALUES('old-news','Contenido anterior');");
   legacy.close();
 
   const upgraded = createDatabase({ filename });
   t.after(() => upgraded.close());
   assert.equal(upgraded.prepare('SELECT version FROM schema_migrations WHERE version = 8').get().version, 8);
   const firstRow = upgraded.prepare('SELECT * FROM catalog_items WHERE id = ?').get('legacy-first');
+  assert.equal(firstRow.public_byline, '');
+  assert.deepEqual({ ...upgraded.prepare("SELECT body,public_byline FROM nodal_news WHERE id='old-news'").get() }, { body: 'Contenido anterior', public_byline: '' });
   assert.equal(firstRow.starts_at, '2030-05-21T12:00:00.000Z');
   assert.equal(firstRow.deadline_at, '2030-05-20T12:00:00.000Z');
   assert.equal(firstRow.end_date, '2030-05-22T23:59:59.999Z');

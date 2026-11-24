@@ -52,7 +52,7 @@ test('GET /api/catalog validates query values and filters localized visible reco
   // A missing HTTP query parser or an authorization-before-localization regression must fail this test.
   const { db, repo, base } = await bootCatalogApp(t);
   const admin = createUser(db, { fullName: 'Catalog Admin', email: 'admin@example.test', passwordHash: 'hash', role: 'admin' });
-  const publicItem = await repo.createCatalogItem(completeItem({ featured: true }), admin.id);
+  const publicItem = await repo.createCatalogItem(completeItem({ featured: true, publicByline: 'Colectivo de Lima' }), admin.id);
   const membersItem = await repo.createCatalogItem(completeItem({ visibility: 'members', location: 'Bogotá', topics: ['Water'] }), admin.id);
   const expiredItem = await repo.createCatalogItem(completeItem({ deadlineAt: '2000-01-01T00:00:00.000Z', location: 'Lima' }), admin.id);
 
@@ -69,7 +69,7 @@ test('GET /api/catalog validates query values and filters localized visible reco
   assert.equal(payload.items.length, 1);
   assert.deepEqual(payload.items[0], {
     id: publicItem.id, kind: 'opportunity', subtype: 'job', title: 'Puesto español', summary: 'Resumen español', body: 'Cuerpo español', cta: 'Aplicar',
-    organization: 'NODAL', location: 'São Paulo', topics: ['Mobility', 'Climate'], startsAt: OPEN_STARTS, deadlineAt: OPEN_DEADLINE, endDate: null,
+    publicByline: 'Colectivo de Lima', organization: 'NODAL', location: 'São Paulo', topics: ['Mobility', 'Climate'], startsAt: OPEN_STARTS, deadlineAt: OPEN_DEADLINE, endDate: null,
     sourceLabel: 'NODAL official source', sourceUrl: 'https://example.test/source', sourceVerifiedAt: '2030-01-01T00:00:00.000Z', actionMode: 'external', actionUrl: 'https://example.test/apply', featured: true, isClosed: false,
   });
   assert.equal((await fetch(`${base}/api/catalog?lang=es&kind=opportunity,resource&subtype=job&topic=Mobility&location=s%C3%A3o&q=espa%C3%B1ol&featured=true&state=all&limit=24`, { headers: { 'If-None-Match': etag } })).status, 304);

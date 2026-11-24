@@ -329,6 +329,10 @@ Before releasing the notification bell, apply `supabase/migrations/2026111923265
 
 Apply `supabase/migrations/20261122010000_news_email_alerts.sql` using the single-file procedure and record version `20261122010000`. Subscribers opt in from [Community](https://sistema-urbano-nodal-ten.vercel.app/community.html#news-email). New published news and public featured opportunities queue one delivery per subscriber. Existing accounts begin unsubscribed. Earlier publications are not backfilled. Unsubscribing removes the account’s pending deliveries.
 
+Before releasing publication previews and public bylines, apply `supabase/migrations/20261123235000_publication_email_credits.sql` and record version `20261123235000`. It adds the optional credit and the sender function that reads the news body or the localized opportunity summary. Existing subscriptions and queued deliveries carry over.
+
+Apply `supabase/migrations/20261123235500_publication_covers.sql` before releasing optional email covers, and record version `20261123235500`. The publishing desk accepts a photo or poster for a news item or opportunity. Posts without a cover use the standard NODAL map.
+
 GitHub Actions runs **Deliver NODAL publication emails** from `main` at minutes 7, 22, 37 and 52 of each UTC hour. GitHub can delay scheduled runs under load. The workflow contacts the production Vercel function at `GET /api/cron/news-email`. Use the same random bearer secret in Vercel’s Production `CRON_SECRET` and the repository Actions secret `NODAL_NEWS_CRON_SECRET`. Redeploy after changing the Vercel secret. The function uses the existing server-side Supabase settings, `EMAIL_SMTP_URL`, `EMAIL_FROM`, `PUBLIC_BASE_URL` and optional `EMAIL_REPLY_TO`.
 
 For an immediate run, choose **Actions → Deliver NODAL publication emails → Run workflow** on `main`. The run records delivery counts. Any deferred delivery remains queued for a later run. For an `uncertain` or stale `sending` row, check the SMTP provider before resending because it may already have accepted the message. `401` indicates that the caller secret is missing or does not match. `503` indicates a configuration or service failure. The CLI `node scripts/deliver-news-alerts.js --send --limit 10` can also run a bounded batch in a configured environment.
@@ -719,8 +723,8 @@ npm start
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
 2. Apply every pending Supabase migration (every file in the release sections
-   above, most recently `20261123000000_course_founder_grant.sql` under
-   "Course certificates and paid course access", before pushing `main`) one file
+   above, most recently `20261123235500_publication_covers.sql` under
+   "Optional publication emails", before pushing `main`) one file
    at a time as described in "SQL Migration Steps" (never `supabase db push`
    against production) and confirm them.
 3. Configure Vercel environment variables.

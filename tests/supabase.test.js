@@ -759,7 +759,7 @@ test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and v
   const item = {
     id: CATALOG_ITEM_ID, kind: 'opportunity', subtype: 'job', status: 'published', visibility: 'public',
     translations: { en: { title: 'Urban role', summary: 'Summary', body: 'Body', cta: 'Apply' }, es: { title: 'Rol urbano', summary: 'Resumen', body: 'Cuerpo', cta: 'Postularse' }, pt: { title: 'Cargo urbano', summary: 'Resumo', body: 'Corpo', cta: 'Candidate-se' } },
-    organization: 'Cities', location: 'Lima', topics: ['mobility'], action_mode: 'external', action_url: 'https://cities.example.test/apply',
+    public_byline: 'Mesa de Lima', organization: 'Cities', location: 'Lima', topics: ['mobility'], action_mode: 'external', action_url: 'https://cities.example.test/apply',
     source_label: 'Cities official source', source_url: 'https://cities.example.test/source', source_verified_at: '2030-05-01T00:00:00.000Z',
     featured: true, version: 1, deadline_at: '2030-05-20T00:00:00.000Z', published_at: '2030-05-01T00:00:00.000Z', created_at: '2030-05-01T00:00:00.000Z', updated_at: '2030-05-01T00:00:00.000Z',
   };
@@ -775,6 +775,7 @@ test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and v
   const list = await repo.listCatalogItems({ kind: 'opportunity', featured: true, limit: 2, cursor, state: 'all' }, null);
   assert.equal(list.items[0].translations.en.title, 'Urban role');
   assert.equal(list.items[0].sourceLabel, 'Cities official source');
+  assert.equal(list.items[0].publicByline, 'Mesa de Lima');
   const read = calls.find((call) => call.options.method === 'GET');
   assert.equal(read.url.searchParams.get('status'), 'eq.published');
   assert.equal(read.url.searchParams.get('visibility'), 'eq.public');
@@ -792,6 +793,7 @@ test('Supabase catalog adapter sends equivalent filters, ordering, cursor, and v
   const write = calls.find((call) => call.options.method === 'PATCH');
   assert.equal(write.url.searchParams.get('id'), `eq.${CATALOG_ITEM_ID}`);
   assert.equal(write.url.searchParams.get('version'), 'eq.1');
+  assert.equal(write.body.public_byline, 'Mesa de Lima');
   assert.equal(JSON.parse(write.options.body).source_label, 'Cities official source');
 });
 

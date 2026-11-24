@@ -13,16 +13,16 @@
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
   <link rel="stylesheet" href="styles.css?v=37" />
-  <link rel="stylesheet" href="admin.css?v=20261109a" />
+  <link rel="stylesheet" href="admin.css?v=20261123f" />
   <link rel="stylesheet" href="workspace-notifications.css?v=20261119d">
   <link rel="stylesheet" href="admin-nav.css?v=20261114a" />
 
   <script defer src="nav.js?v=20261116a"></script>
   <script defer src="script.js?v=18"></script>
   <script defer src="admin-nav.js?v=20261116a"></script>
-  <script defer src="i18n-dashboard.js?v=20261122a"></script>
+  <script defer src="i18n-dashboard.js?v=20261123f"></script>
   <script defer src="i18n.js?v=20261116a"></script>
-  <script defer src="admin.js?v=20261116a"></script>
+  <script defer src="admin.js?v=20261123f"></script>
   <script defer src="workspace-notifications.js?v=20261119d"></script>
   <script defer src="visit.js?v=20261114b" data-staff></script>
 </head>
@@ -92,6 +92,16 @@
           </div>
           <label><span id="adminNewsTitleLabel" data-i18n="ops.news.fieldTitle">Title</span><input id="adminNewsTitle" maxlength="160" autocomplete="off" aria-labelledby="adminNewsTitleLabel" aria-describedby="adminNewsTitleError" /><span class="admin-field-error" id="adminNewsTitleError" role="alert" hidden></span></label>
           <label><span class="admin-label-row"><span id="adminNewsBodyLabel" data-i18n="ops.news.fieldBody">Text</span><span class="admin-count" id="adminNewsBodyCount">0 / 2000</span></span><textarea id="adminNewsBody" maxlength="2000" rows="6" aria-labelledby="adminNewsBodyLabel" aria-describedby="adminNewsBodyError adminNewsBodyCount"></textarea><span class="admin-field-error" id="adminNewsBodyError" role="alert" hidden></span></label>
+          <label><span id="adminNewsBylineLabel" data-i18n="ops.field.byline">Public byline (optional)</span><input id="adminNewsByline" maxlength="120" autocomplete="off" aria-labelledby="adminNewsBylineLabel" aria-describedby="adminNewsBylineHint adminNewsBylineError" /><small class="admin-field-note" id="adminNewsBylineHint" data-i18n="ops.field.bylineHint">Name of the person or team to credit in the email.</small><span class="admin-field-error" id="adminNewsBylineError" role="alert" hidden></span></label>
+          <fieldset class="admin-cover" id="adminNewsCover">
+            <legend data-i18n="ops.cover.title">Email cover</legend>
+            <label><span data-i18n="ops.cover.file">Photo or artwork (optional)</span><input id="adminNewsCoverFile" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="adminNewsCoverHint adminNewsCoverStatus" /></label>
+            <p id="adminNewsCoverHint" class="admin-field-note" data-i18n="ops.cover.hint">Choose a JPG, PNG or WebP up to 12 MB. The whole image fits in the email. Leave this empty to use the NODAL map.</p>
+            <img id="adminNewsCoverPreview" class="admin-cover-preview" src="/assets/email/nodal-network-map-v1.png" width="240" alt="" />
+            <label id="adminNewsCoverAltLabel" hidden><span data-i18n="ops.cover.alt">Image description for readers using a screen reader</span><input id="adminNewsCoverAlt" maxlength="240" /></label>
+            <button id="adminNewsCoverRemove" class="admin-textbutton" type="button" data-i18n="ops.cover.reset" hidden>Use the NODAL map</button>
+            <span id="adminNewsCoverStatus" role="status" aria-live="polite"></span>
+          </fieldset>
           <div class="admin-news-row">
             <label><span id="adminNewsUrlLabel" data-i18n="ops.news.fieldUrl">Link, optional</span><input id="adminNewsUrl" type="url" inputmode="url" maxlength="500" placeholder="https://…" autocomplete="off" aria-labelledby="adminNewsUrlLabel" aria-describedby="adminNewsUrlError" /><span class="admin-field-error" id="adminNewsUrlError" role="alert" hidden></span></label>
             <label class="admin-check"><input id="adminNewsPinned" type="checkbox" /><span data-i18n="ops.news.fieldPinned">Pin to the top</span></label>
@@ -173,6 +183,7 @@
               <legend data-i18n="ops.editor.ownership">Ownership and timing</legend>
               <div class="admin-grid admin-grid-3">
                 <label><span data-i18n="ops.field.organization">Organization</span><input id="adminOrganization" maxlength="180" /></label>
+                <label id="adminCatalogBylineField" hidden><span id="adminCatalogBylineLabel" data-i18n="ops.field.byline">Public byline (optional)</span><input id="adminCatalogByline" maxlength="120" autocomplete="off" aria-labelledby="adminCatalogBylineLabel" aria-describedby="adminCatalogBylineHint" /><small class="admin-field-note" id="adminCatalogBylineHint" data-i18n="ops.field.bylineHint">Name of the person or team to credit in the email.</small></label>
                 <label><span data-i18n="ops.field.location">Location</span><input id="adminLocation" maxlength="180" /></label>
                 <label><span id="adminTopicsLabel" data-i18n="ops.field.topics">Topics</span><input id="adminTopics" maxlength="487" aria-labelledby="adminTopicsLabel" aria-describedby="adminTopicsError" placeholder="Up to 8, separated by commas" data-i18n-placeholder="ops.field.topicsHint" /><span class="admin-field-error" id="adminTopicsError" role="alert" hidden></span></label>
                 <label><span data-i18n="ops.field.startsAt">Starts at</span><input id="adminStartsAt" type="datetime-local" /></label>
@@ -181,6 +192,15 @@
               </div>
             </fieldset>
 
+            <fieldset class="admin-cover" id="adminCatalogCover" hidden>
+              <legend data-i18n="ops.cover.title">Email cover</legend>
+              <label><span data-i18n="ops.cover.file">Photo or artwork (optional)</span><input id="adminCatalogCoverFile" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="adminCatalogCoverHint adminCatalogCoverStatus" /></label>
+              <p id="adminCatalogCoverHint" class="admin-field-note" data-i18n="ops.cover.hint">Choose a JPG, PNG or WebP up to 12 MB. The whole image fits in the email. Leave this empty to use the NODAL map.</p>
+              <img id="adminCatalogCoverPreview" class="admin-cover-preview" src="/assets/email/nodal-network-map-v1.png" width="240" alt="" />
+              <label id="adminCatalogCoverAltLabel" hidden><span data-i18n="ops.cover.alt">Image description for readers using a screen reader</span><input id="adminCatalogCoverAlt" maxlength="240" /></label>
+              <button id="adminCatalogCoverRemove" class="admin-textbutton" type="button" data-i18n="ops.cover.reset" hidden>Use the NODAL map</button>
+              <span id="adminCatalogCoverStatus" role="status" aria-live="polite"></span>
+            </fieldset>
             <fieldset>
               <legend data-i18n="ops.editor.verification">Verification and action</legend>
               <div class="admin-grid admin-grid-3">

@@ -1,3 +1,4 @@
+import {catalogColumns, catalogCoverUpdate, catalogCoverView} from './publication-cover.js';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -27,6 +28,8 @@ import {
   normalizePartC,
   plainText,
 } from './profile-policy.js';
+
+const CATALOG_SELECT = catalogColumns(true);
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 
@@ -313,6 +316,35 @@ const MIGRATIONS = [
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         jpeg BLOB NOT NULL CHECK(length(jpeg) BETWEEN 1 AND 131072)
       )`);
+    },
+  },
+  {
+    version: 12,
+    apply(db) {
+      // Older databases may already have the lazily created news table.
+      for (const table of ['catalog_items', 'nodal_news']) {
+        const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+        if (columns.length && !columns.some(column => column.name === 'public_byline')) {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN public_byline TEXT NOT NULL DEFAULT '' CHECK(length(public_byline)<=120)`);
+        }
+      }
+    },
+  },
+  {
+    version: 13,
+    apply(db) {
+      for (const table of ['catalog_items', 'nodal_news']) {
+        const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+        if (!columns.length) continue;
+        const definitions = {
+          cover_revision: "TEXT NOT NULL DEFAULT ''",
+          cover_alt: "TEXT NOT NULL DEFAULT '' CHECK(length(cover_alt)<=240)",
+          cover_jpeg: 'BLOB CHECK(cover_jpeg IS NULL OR length(cover_jpeg) BETWEEN 1 AND 307200)',
+        };
+        for (const [name, definition] of Object.entries(definitions)) {
+          if (!columns.some(column => column.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+        }
+      }
     },
   },
 ];
@@ -612,11 +644,13 @@ function catalogItemFromRow(row) {
   return {
     id: row.id,
     kind: row.kind,
+    ...catalogCoverView(row),
     subtype: row.subtype,
     status: row.status,
     visibility: row.visibility,
     translations: parseJson(row.translations_json, {}),
     organization: row.organization,
+    publicByline: row.public_byline ?? '',
     location: row.location,
     topics: parseJson(row.topics_json, []),
     startsAt: row.starts_at,
@@ -670,7 +704,7 @@ function attachCatalogItems(db, interests) {
   if (!interests.length) return interests;
   const itemIds = [...new Set(interests.map((interest) => interest.itemId))];
   const placeholders = itemIds.map(() => '?').join(', ');
-  const items = new Map(db.prepare(`SELECT * FROM catalog_items WHERE id IN (${placeholders})`).all(...itemIds)
+  const items = new Map(db.prepare(`SELECT ${CATALOG_SELECT} FROM catalog_items WHERE id IN (${placeholders})`).all(...itemIds)
     .map(catalogItemFromRow).map((item) => [item.id, item]));
   return interests.map((interest) => ({ ...interest, item: items.get(interest.itemId) || null }));
 }
@@ -724,6 +758,7 @@ function catalogConflict() {
 function writeCatalogItem(db, id, input, actorId, current = null) {
   const item = input.status === 'published' ? validateCatalogPublication(input) : validateCatalogDraft(input);
   const now = nowIso();
+  const cover = catalogCoverUpdate(item);
   const publishing = item.status === 'published' && current?.status !== 'published';
   const publishedAt = publishing ? now : (current?.published_at || null);
   const publishedBy = publishing ? actorId : (current?.published_by || null);
@@ -731,29 +766,30 @@ function writeCatalogItem(db, id, input, actorId, current = null) {
     db.prepare(`
       INSERT INTO catalog_items (
         id, kind, subtype, status, visibility, translations_json, organization, location, topics_json,
-        starts_at, deadline_at, end_date, source_label, source_url, source_verified_at, action_mode, action_url, featured,
+        starts_at, deadline_at, end_date, source_label, source_url, source_verified_at, action_mode, action_url, featured, public_byline, cover_revision, cover_alt, cover_jpeg,
         version, created_by, updated_by, published_by, published_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
     `).run(
       id, item.kind, item.subtype, item.status, item.visibility, json(item.translations), item.organization, item.location, json(item.topics),
       item.startsAt, item.deadlineAt, item.endDate, item.sourceLabel, item.sourceUrl, item.sourceVerifiedAt, item.actionMode, item.actionUrl, Number(item.featured),
-      actorId, actorId, publishedBy, publishedAt, now, now,
+      item.publicByline ?? '', cover.coverRevision ?? '', cover.coverAlt ?? '', cover.coverJpeg ?? null, actorId, actorId, publishedBy, publishedAt, now, now,
     );
-    return catalogItemFromRow(db.prepare('SELECT * FROM catalog_items WHERE id = ?').get(id));
+    return catalogItemFromRow(db.prepare(`SELECT ${CATALOG_SELECT} FROM catalog_items WHERE id = ?`).get(id));
   }
   const result = db.prepare(`
     UPDATE catalog_items SET
       kind = ?, subtype = ?, status = ?, visibility = ?, translations_json = ?, organization = ?, location = ?, topics_json = ?,
       starts_at = ?, deadline_at = ?, end_date = ?, source_label = ?, source_url = ?, source_verified_at = ?, action_mode = ?, action_url = ?, featured = ?,
-      version = version + 1, updated_by = ?, published_by = ?, published_at = ?, updated_at = ?
+      public_byline = coalesce(?, public_byline), cover_revision = coalesce(?, cover_revision), cover_alt = coalesce(?, cover_alt),
+      cover_jpeg = CASE WHEN ? THEN ? ELSE cover_jpeg END, version = version + 1, updated_by = ?, published_by = ?, published_at = ?, updated_at = ?
     WHERE id = ? AND version = ?
   `).run(
     item.kind, item.subtype, item.status, item.visibility, json(item.translations), item.organization, item.location, json(item.topics),
     item.startsAt, item.deadlineAt, item.endDate, item.sourceLabel, item.sourceUrl, item.sourceVerifiedAt, item.actionMode, item.actionUrl, Number(item.featured),
-    actorId, publishedBy, publishedAt, now, id, current.version,
+    item.publicByline ?? null, cover.coverRevision ?? null, cover.coverAlt ?? null, Number(cover.coverJpeg !== undefined), cover.coverJpeg ?? null, actorId, publishedBy, publishedAt, now, id, current.version,
   );
   if (!result.changes) throw catalogConflict();
-  return catalogItemFromRow(db.prepare('SELECT * FROM catalog_items WHERE id = ?').get(id));
+  return catalogItemFromRow(db.prepare(`SELECT ${CATALOG_SELECT} FROM catalog_items WHERE id = ?`).get(id));
 }
 
 export function createCatalogItem(db, input, actorId) {
@@ -761,7 +797,7 @@ export function createCatalogItem(db, input, actorId) {
 }
 
 export function updateCatalogItem(db, id, input, version, actorId) {
-  const current = db.prepare('SELECT * FROM catalog_items WHERE id = ?').get(id);
+  const current = db.prepare(`SELECT ${CATALOG_SELECT} FROM catalog_items WHERE id = ?`).get(id);
   if (!current) return null;
   if (Number(version) !== current.version) throw catalogConflict();
   db.exec('BEGIN');
@@ -778,7 +814,7 @@ export function updateCatalogItem(db, id, input, version, actorId) {
 export function listCatalogItems(db, query = {}, viewer = null) {
   const cursor = query.cursor ? decodeCatalogCursor(query.cursor) : null;
   const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
-  const items = db.prepare('SELECT * FROM catalog_items').all()
+  const items = db.prepare(`SELECT ${CATALOG_SELECT} FROM catalog_items`).all()
     .map(catalogItemFromRow)
     .filter((item) => visibleCatalogItem(item, viewer))
     .filter((item) => matchesCatalogQuery(item, query))
@@ -789,7 +825,7 @@ export function listCatalogItems(db, query = {}, viewer = null) {
 }
 
 export function getCatalogItem(db, id, viewer = null) {
-  const item = catalogItemFromRow(db.prepare('SELECT * FROM catalog_items WHERE id = ?').get(id));
+  const item = catalogItemFromRow(db.prepare(`SELECT ${CATALOG_SELECT} FROM catalog_items WHERE id = ?`).get(id));
   return item && visibleCatalogItem(item, viewer) ? item : null;
 }
 

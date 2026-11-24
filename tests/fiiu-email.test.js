@@ -203,31 +203,38 @@ test('the letter is signed by the NODAL team, in the HTML and just before the pl
  assert.deepEqual(EMAIL_ROWS.signoff,['See you in Lima,','Nos vemos en Lima,','Nos vemos em Lima,']);
 });
 
-test('the email logo is published on the public origin with a cross-origin resource policy, by the build and the local server',async t=>{
+test('the branded email graphics are published on the public origin by the build and the local server',async t=>{
+ const lockups=['nodal-lockup.png','nodal-lockup-dark.png'];
+ const graphics=[...lockups,'nodal-network-map-v1.png'];
  // Vercel applies every matching header rule in order, a later value winning: the email rule follows /assets/(.*).
  const vercel=JSON.parse(readFileSync(new URL('../vercel.json',import.meta.url),'utf8'));
  const headersFor=pathname=>Object.fromEntries(vercel.headers.filter(rule=>new RegExp(`^${rule.source}$`).test(pathname)).flatMap(rule=>rule.headers.map(({key,value})=>[key.toLowerCase(),value])));
- for(const file of ['nodal-lockup.png','nodal-lockup-dark.png']){
+ for(const file of graphics){
   const headers=headersFor(`/assets/email/${file}`);
   assert.equal(headers['cross-origin-resource-policy'],'cross-origin',file);assert.match(headers['cache-control'],/immutable/,file);assert.equal(headers['x-content-type-options'],'nosniff',file);
  }
  assert.equal(headersFor('/assets/nodal-wordmark.webp')['cross-origin-resource-policy'],'same-origin','the site assets stay same-origin');
- // Both PNGs reach public/assets/email/ unchanged, at least twice the 168×64 they are shown at.
+ // Every published PNG reaches the build unchanged. The two logo variants are at least twice their display size.
  const output=mkdtempSync(join(tmpdir(),'nodal-email-assets-'));t.after(()=>rmSync(output,{recursive:true,force:true}));
  await buildStatic({output,pilotMode:true});
- for(const file of ['nodal-lockup.png','nodal-lockup-dark.png']){
+ for(const file of graphics){
   const source=readFileSync(new URL(`../web/assets/email/${file}`,import.meta.url));
   assert.deepEqual(readFileSync(join(output,'assets','email',file)),source,file);
   assert.equal(source.subarray(1,4).toString('latin1'),'PNG',file);
   const [width,height]=[source.readUInt32BE(16),source.readUInt32BE(20)];
-  assert.ok(width>=2*168&&height>=2*64&&Math.abs(width/height-168/64)<0.02,`${file}: ${width}×${height}`);
+  if(lockups.includes(file))assert.ok(width>=2*168&&height>=2*64&&Math.abs(width/height-168/64)<0.02,`${file}: ${width}×${height}`);
  }
- // The local server serves the same two files, cross-origin, and nothing else from that folder.
+ // The local server serves the same files cross-origin, restricted to its email asset allowlist.
  const server=createApp({store:createStore(),citySearch:{search:async()=>({cities:[]})}});
  server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
  const base=`http://127.0.0.1:${server.address().port}`;
- const logo=await fetch(`${base}/assets/email/nodal-lockup.png`);
- assert.equal(logo.status,200);assert.equal(logo.headers.get('content-type'),'image/png');assert.equal(logo.headers.get('cross-origin-resource-policy'),'cross-origin');
+ for(const file of graphics){
+  const image=await fetch(`${base}/assets/email/${file}`);
+  assert.equal(image.status,200,file);
+  assert.equal(image.headers.get('content-type'),'image/png',file);
+  assert.equal(image.headers.get('cross-origin-resource-policy'),'cross-origin',file);
+  assert.deepEqual(Buffer.from(await image.arrayBuffer()),readFileSync(join(output,'assets','email',file)),file);
+ }
  assert.equal((await fetch(`${base}/assets/nodal-wordmark.webp`)).headers.get('cross-origin-resource-policy'),'same-origin');
  for(const pathname of ['/assets/email/letter-lockup.png','/assets/email/../nodal-wordmark.webp','/web/assets/email/nodal-lockup.png'])assert.notEqual((await fetch(`${base}${pathname}`)).headers.get('cross-origin-resource-policy'),'cross-origin',pathname);
  assert.equal((await fetch(`${base}/assets/email/letter-lockup.png`)).status,404);

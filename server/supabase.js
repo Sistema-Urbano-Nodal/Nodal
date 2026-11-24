@@ -1,3 +1,4 @@
+import {catalogColumns, catalogCoverUpdate, catalogCoverView, postgresJpeg} from './publication-cover.js';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { parseCookies, sessionCookie, validateEmail, validatePassword } from './auth.js';
 import { defaultProfilePreferences, PROFILE_NAME_MAX } from './domain.js';
@@ -24,6 +25,8 @@ import {
   profilePhotoFields,
   plainText,
 } from './profile-policy.js';
+
+const CATALOG_SELECT = catalogColumns();
 
 const ROOT_ROLE = 'Member';
 const ACCESS_COOKIE = 'nodal_session';
@@ -383,11 +386,13 @@ function catalogItemFromSupabase(row) {
   const item = {
     id: row.id,
     kind: row.kind,
+    ...catalogCoverView(row),
     subtype: row.subtype ?? null,
     status: row.status,
     visibility: row.visibility,
     translations: row.translations && typeof row.translations === 'object' ? row.translations : {},
     organization: row.organization || '',
+    publicByline: row.public_byline || '',
     location: row.location || '',
     topics: asArray(row.topics).map(String),
     startsAt: canonicalTimestamp(row.starts_at),
@@ -506,7 +511,7 @@ function catalogAfterCursor([featured, deadlineAt, publishedAt, id]) {
 function catalogListQuery(query = {}, viewer = null, { offset = 0, batchSize = 25, cursor = null, openAt = null } = {}) {
   const limit = Math.min(Math.max(Number(query.limit) || 24, 1), 24);
   const out = {
-    select: '*',
+    select: CATALOG_SELECT,
     order: 'featured.desc,deadline_at.asc.nullslast,published_at.desc.nullslast,id.asc',
     limit: batchSize,
     offset,
@@ -547,14 +552,19 @@ function matchesCatalogList(item, query, cursor) {
 function catalogItemPayload(input, actorId, { version, currentStatus = null, publishedAt = null, publishedBy = null } = {}) {
   const item = input.status === 'published' ? validateCatalogPublication(input) : validateCatalogDraft(input);
   const now = nowIso();
+  const cover = catalogCoverUpdate(item);
   const publishing = item.status === 'published' && currentStatus !== 'published';
   return {
     kind: item.kind,
+    ...(cover.coverRevision === undefined ? {} : {cover_revision: cover.coverRevision}),
+    ...(cover.coverAlt === undefined ? {} : {cover_alt: cover.coverAlt}),
+    ...(cover.coverJpeg === undefined ? {} : {cover_jpeg: postgresJpeg(cover.coverJpeg)}),
     subtype: item.subtype,
     status: item.status,
     visibility: item.visibility,
     translations: item.translations,
     organization: item.organization,
+    ...(item.publicByline === undefined ? {} : { public_byline: item.publicByline }),
     location: item.location,
     topics: item.topics,
     starts_at: item.startsAt,
@@ -637,7 +647,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
     if (!interests.length) return interests;
     const itemIds = [...new Set(interests.map((interest) => interest.itemId))];
     const rows = await admin.rest('catalog_items', {
-      query: { id: `in.(${itemIds.join(',')})`, select: '*' },
+      query: { id: `in.(${itemIds.join(',')})`, select: CATALOG_SELECT },
     });
     const items = new Map(rows.map(catalogItemFromSupabase).map((item) => [item.id, item]));
     return interests.map((interest) => ({ ...interest, item: items.get(interest.itemId) || null }));
@@ -1437,6 +1447,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       const row = await first(admin.rest('catalog_items', {
         method: 'POST',
         headers: { Prefer: 'return=representation' },
+        query: {select: CATALOG_SELECT},
         body: [catalogItemPayload(input, actorId)],
       }));
       return catalogItemFromSupabase(row);
@@ -1447,7 +1458,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       if (Number(version) !== current.version) throw catalogConflict();
       const row = await first(admin.rest('catalog_items', {
         method: 'PATCH',
-        query: { id: `eq.${id}`, version: `eq.${current.version}` },
+        query: { select: CATALOG_SELECT, id: `eq.${id}`, version: `eq.${current.version}` },
         headers: { Prefer: 'return=representation' },
         body: catalogItemPayload(input, actorId, {
           version: current.version,

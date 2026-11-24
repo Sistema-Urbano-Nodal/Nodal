@@ -1,4 +1,6 @@
+import {coverUpdate,coverUrl,COVER_BODY_LIMIT,COVER_ROUTE} from './publication-cover.js';
 import {randomUUID} from 'node:crypto';
+import {publicationByline} from './catalog.js';
 import {fail,identifier} from './courses-domain.js';
 import {bodyJson} from './courses-api.js';
 
@@ -17,7 +19,7 @@ function newsUrl(value){
  if(parsed.href.length>NEWS_LIMITS.url)invalid('url','url is too long');
  return parsed.href;
 }
-const NEWS_DEFAULTS={title:'',body:'',url:'',pinned:false,status:'draft'};
+const NEWS_DEFAULTS={title:'',body:'',publicByline:'',url:'',pinned:false,status:'draft'};
 // A new item starts from the defaults; a PATCH starts from the stored row, so omitted fields keep their value.
 export function normalizeNews(input,current=NEWS_DEFAULTS){
  const pick=k=>input[k]===undefined?current[k]:input[k],title=pick('title'),body=pick('body'),pinned=pick('pinned'),status=pick('status');
@@ -27,11 +29,14 @@ export function normalizeNews(input,current=NEWS_DEFAULTS){
  const cleanBody=body.trim();if(cleanBody.length>NEWS_LIMITS.body)invalid('body','body is too long');
  if(typeof pinned!=='boolean')invalid('pinned','pinned must be true or false');
  if(!['draft','published'].includes(status))invalid('status','status must be draft or published');
- return {title:cleanTitle,body:cleanBody,url:newsUrl(pick('url')),pinned,status};
+ let publicByline;
+ try{publicByline=publicationByline(pick('publicByline'));}catch(error){invalid('publicByline',error.message);}
+ return {title:cleanTitle,body:cleanBody,publicByline,...coverUpdate(input),url:newsUrl(pick('url')),pinned,status};
 }
-// Neither view carries created_by: authorship stays in the database for accountability and account erasure.
-export const newsView=({id,title,body,url,pinned,publishedAt})=>({id,title,body,url,pinned,publishedAt});
-export const newsAdminView=({id,title,body,url,pinned,status,publishedAt,createdAt,updatedAt,version})=>({id,title,body,url,pinned,status,publishedAt,createdAt,updatedAt,version});
+// Editors may supply a public credit. The private account ID stays in the database.
+const coverView=({id,coverRevision,coverAlt})=>coverRevision?{coverUrl:coverUrl('news',id,coverRevision),coverAlt:coverAlt || ''}:{};
+export const newsView=item=>({id:item.id,title:item.title,body:item.body,publicByline:item.publicByline,url:item.url,pinned:item.pinned,publishedAt:item.publishedAt,...coverView(item)});
+export const newsAdminView=item=>({...newsView(item),status:item.status,createdAt:item.createdAt,updatedAt:item.updatedAt,version:item.version});
 // Cursors carry the last row's sort key, not just its id, so an edit between two page requests cannot move the
 // boundary. The timestamp lands inside a PostgREST filter, so only a strict timestamp and a UUID are accepted.
 const STAMP=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -54,7 +59,7 @@ export function decodeNewsCursor(raw,published){
 //          PATCH /api/admin/news/:id {version,...fields} → 200 {item} | 409 {error,code:'version_conflict',item} | 404
 //          DELETE /api/admin/news/:id → 204 (also when it was already gone)
 export function createNewsApi({store,sameOrigin,send,rateLimit=()=>true}){
- const body=req=>bodyJson(req,32768);
+ const body=req=>bodyJson(req,COVER_BODY_LIMIT);
  const page=async(url,published)=>{
   const cursor=url.searchParams.get('cursor')||'',rawLimit=published?url.searchParams.get('limit')||'':'';
   if(rawLimit&&(!/^[1-9]\d{0,2}$/.test(rawLimit)||Number(rawLimit)>NEWS_LIMITS.maxPage))invalid('limit');
@@ -66,6 +71,18 @@ export function createNewsApi({store,sameOrigin,send,rateLimit=()=>true}){
  const conflicted=(res,item)=>{send(res,409,{error:CHANGED,code:'version_conflict',item:newsAdminView(item)});return true;};
  return async({req,res,url,user})=>{
   const path=url.pathname;
+  if(path.startsWith('/api/publication-covers/')){
+   const match=COVER_ROUTE.exec(path);
+   if(!match){send(res,404,{error:'not found'});return true;}
+   if(!['GET','HEAD'].includes(req.method)){send(res,405,{error:'method not allowed'},{Allow:'GET, HEAD'});return true;}
+   if(!rateLimit(req,res,user,path))return true;
+   const staff=user?.permission==='admin';
+   const bytes=await store.cover(match[1],match[2],match[3],staff);
+   const headers={'Cache-Control':'private, no-store',Vary:'Cookie, Authorization','Cross-Origin-Resource-Policy':staff?'same-origin':'cross-origin'};
+   if(bytes)send(res,200,bytes,{...headers,'Content-Type':'image/jpeg','Content-Length':String(bytes.length)});
+   else send(res,302,'',{...headers,Location:'/assets/email/nodal-network-map-v1.png'});
+   return true;
+  }
   if(!/^\/api\/(?:admin\/)?news(?:\/|$)/.test(path))return false;
   const staff=path.startsWith('/api/admin/'),read=['GET','HEAD'].includes(req.method);
   // The public feed is read-only; HEAD is answered like GET (Node sends no body for it).
@@ -78,7 +95,7 @@ export function createNewsApi({store,sameOrigin,send,rateLimit=()=>true}){
    if(path==='/api/news/email-preference'){
     if(read){send(res,200,{enabled:await store.alerts.preference(user.id)});return true;}
     if(req.method!=='PUT'){send(res,405,{error:'method not allowed'},{Allow:'GET, HEAD, PUT'});return true;}
-    const input=await body(req);
+    const input=await bodyJson(req,32768);
     if(typeof input?.enabled!=='boolean'||Object.keys(input).some(k=>!['enabled','language'].includes(k)))invalid('enabled');
     if(input.language!==undefined&&!['es','en','pt'].includes(input.language))invalid('language');
     await store.alerts.subscribe(user.id,input.enabled,input.language);send(res,200,{enabled:input.enabled});return true;
@@ -95,7 +112,7 @@ export function createNewsApi({store,sameOrigin,send,rateLimit=()=>true}){
     let item;try{item=await store.insert({id,...fields,publishedAt:fields.status==='published'?at:null,createdAt:at,updatedAt:at,createdBy:user.id,version:1});}
     catch(err){
      const existing=input.id!=null&&err.status===409&&await store.get(id);if(!existing)throw err;
-     if(Object.keys(fields).some(k=>existing[k]!==fields[k]))return conflicted(res,existing);
+     if(Object.keys(fields).some(k=>k!=='coverJpeg'&&existing[k]!==fields[k])||(!fields.coverRevision&&existing.coverRevision))return conflicted(res,existing);
      send(res,200,{item:newsAdminView(existing)});return true;
     }
     send(res,201,{item:newsAdminView(item)});return true;

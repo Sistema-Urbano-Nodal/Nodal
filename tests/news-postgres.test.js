@@ -63,14 +63,20 @@ test('PostgreSQL news migration enforces private access, the publication rules, 
  assert.equal(await sql('SELECT count(*) FROM nodal_news WHERE created_by IS NOT NULL'),'0');
  assert.equal(await sql('SELECT count(*) FROM nodal_news'),'7');
  await sql(`ALTER TABLE profiles ADD COLUMN account_status text NOT NULL DEFAULT 'active';
-   CREATE TABLE catalog_items(id uuid PRIMARY KEY,kind text,status text,visibility text,featured boolean,translations jsonb);
+   CREATE TABLE catalog_items(id uuid PRIMARY KEY,kind text,status text,visibility text,featured boolean,translations jsonb,organization text DEFAULT '');
    CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY,email text,email_confirmed_at timestamptz);`);
  await execute('psql',[...args,'-f',new URL('20261122010000_news_email_alerts.sql',migrations).pathname]);
+ await execute('psql',[...args,'-f',new URL('20261123235000_publication_email_credits.sql',migrations).pathname]);
+ await execute('psql',[...args,'-f',new URL('20261123235500_publication_covers.sql',migrations).pathname]);
  for(const role of ['anon','authenticated']){
   await assert.rejects(sql(`SET ROLE ${role}; SELECT * FROM public.claim_news_email();`),/permission denied/);
+  await assert.rejects(sql(`SET ROLE ${role}; SELECT * FROM public.claim_publication_email();`),/permission denied/);
+  await assert.rejects(sql(`SET ROLE ${role}; SELECT * FROM public.claim_publication_email_with_cover();`),/permission denied/);
   await assert.rejects(sql(`SET ROLE ${role}; SELECT public.subscribe_news_email(gen_random_uuid(),'es');`),/permission denied/);
   await assert.rejects(sql(`SET ROLE ${role}; SELECT * FROM public.news_email_preferences;`),/permission denied/);
  }
+ const revision='ab'.repeat(32), coverFields=`cover_revision='${revision}',cover_alt='Capa',cover_jpeg=decode('ffd8ffd9','hex')`;
+ await assert.rejects(sql(`UPDATE nodal_news SET cover_jpeg=decode('ff','hex') WHERE id='${item}';`),/check constraint/);
  const sub=crypto.randomUUID(),guest=crypto.randomUUID(),news=crypto.randomUUID();
  await sql(`INSERT INTO profiles(id) VALUES('${sub}'),('${guest}');
    INSERT INTO auth.users VALUES('${sub}','test@example.test',now()),('${guest}','guest@example.test',NULL);
@@ -83,23 +89,26 @@ test('PostgreSQL news migration enforces private access, the publication rules, 
    UPDATE nodal_news SET status='draft' WHERE id='${news}';
    UPDATE nodal_news SET status='published' WHERE id='${news}';`);
  assert.equal(await sql('SELECT count(*) FROM public.news_email_outbox'),'2');
- const claim=()=>sql('SET ROLE service_role; SELECT email,language,attempts FROM public.claim_news_email();');
- assert.deepEqual((await Promise.all([claim(),claim()])).sort(),['','test@example.test|pt|1']);
+ const claim=()=>sql('SET ROLE service_role; SELECT email,language,attempts FROM public.claim_publication_email();');
+ await sql(`UPDATE nodal_news SET ${coverFields},body='Updated news text',public_byline='Redacción NODAL' WHERE id='${news}';`);
+ const claimCredit=()=>sql('SET ROLE service_role; SELECT email,language,attempts,excerpt,byline,organization,cover_url,cover_alt FROM public.claim_publication_email_with_cover();');
+ assert.deepEqual((await Promise.all([claimCredit(),claimCredit()])).sort(),['',`test@example.test|pt|1|Updated news text|Redacción NODAL||/api/publication-covers/news/${news}/${revision}.jpg|Capa`]);
  const exported=JSON.parse(await sql(`SET ROLE service_role; SELECT public.export_news_email('${sub}');`));
  assert.equal(exported.subscription.language,'pt');assert.deepEqual(exported.deliveries,[{news_id:news,catalog_id:null,status:'sending',attempts:1}]);
  await sql(`SET ROLE service_role; DELETE FROM public.news_email_preferences WHERE user_id='${sub}';`);
  assert.equal(await sql(`SELECT count(*) FROM public.news_email_outbox WHERE user_id='${sub}'`),'0');
  const opportunity=crypto.randomUUID(),resource=crypto.randomUUID();
  await sql(`INSERT INTO public.news_email_preferences(user_id,language) VALUES('${sub}','pt');
-   SET ROLE service_role; INSERT INTO catalog_items VALUES
+   SET ROLE service_role; INSERT INTO catalog_items (id,kind,status,visibility,featured,translations) VALUES
     ('${resource}','resource','published','public',true,'{"pt":{"title":"Guia"}}'),
     ('${opportunity}','opportunity','published','members',true,'{"pt":{"title":"Vaga"}}');`);
  assert.equal(await claim(),'');
  await sql(`SET ROLE service_role; UPDATE catalog_items SET visibility='public' WHERE id='${opportunity}';
   UPDATE catalog_items SET featured=false WHERE id='${opportunity}';`);
  assert.equal(await claim(),'');
- await sql(`SET ROLE service_role; UPDATE catalog_items SET featured=true WHERE id='${opportunity}';`);
- assert.equal(await sql(`SET ROLE service_role; SELECT catalog_id,title FROM public.claim_news_email();`),opportunity+'|Vaga');
+ await sql(`SET ROLE service_role; UPDATE catalog_items SET ${coverFields},featured=true,organization='Escola',translations='{"pt":{"title":"Vaga","summary":"Resumo para leitores","body":"Longo"},"es":{"summary":"Otro texto"}}'
+   WHERE id='${opportunity}';`);
+ assert.equal(await sql(`SET ROLE service_role; SELECT catalog_id,title,excerpt,byline,organization,cover_url,cover_alt FROM public.claim_publication_email_with_cover();`),`${opportunity}|Vaga|Resumo para leitores||Escola|/api/publication-covers/opportunity/${opportunity}/${revision}.jpg|Capa`);
  assert.equal(await sql(`SELECT count(*) FROM news_email_events WHERE catalog_id='${resource}'`),'0');
  assert.equal(await claim(),'');
  const qa=crypto.randomUUID(),draft=crypto.randomUUID(),wrongDraft=crypto.randomUUID(),publicNews=crypto.randomUUID();
@@ -114,7 +123,8 @@ test('PostgreSQL news migration enforces private access, the publication rules, 
    VALUES('${testId}','${sub}'),('${invalidId}','${qa}');`);
  assert.equal(await claim(),'','a different subscriber and malformed private id are ineligible');
  await sql(`SET ROLE service_role; INSERT INTO news_email_outbox(event_id,user_id) VALUES('${testId}','${qa}');`);
- assert.equal(await claim(),'qa@example.test|es|1');
+ await sql(`UPDATE nodal_news SET ${coverFields} WHERE id='${draft}';`);
+ assert.equal(await sql('SET ROLE service_role; SELECT email,language,attempts,cover_url,cover_alt FROM public.claim_publication_email_with_cover();'),'qa@example.test|es|1||');
  await insert(publicNews,{status:"'published'",publishedAt:'now()',createdBy:'NULL'});
  assert.equal(await sql(`SELECT count(*) FROM news_email_outbox WHERE event_id='n:${publicNews}' AND user_id='${qa}';`),'0');
  const exportedQa=JSON.parse(await sql(`SET ROLE service_role; SELECT public.export_news_email('${qa}');`));

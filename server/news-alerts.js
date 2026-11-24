@@ -1,5 +1,6 @@
 import {createSupabaseClients} from './supabase.js';
 import {createMailTransport} from './mailer.js';
+import {publicationEmail} from './publication-email.js';
 
 // Membership in this table is a voluntary preference for news published after the member joined.
 export const SQLITE_NEWS_ALERTS = `
@@ -59,7 +60,14 @@ export function createNewsAlerts({db,clients,env,fetchImpl}){
       WHERE (event_id,user_id)=(SELECT o.event_id,o.user_id ${eligible} AND o.status='queued' AND o.available_at<=unixepoch()
         ORDER BY o.available_at,o.event_id,o.user_id LIMIT 1) RETURNING event_id,user_id`);
     const details=db.prepare(`SELECT o.event_id,o.user_id,o.attempts,e.news_id,e.catalog_id,u.email,p.language,
-      coalesce(n.title,json_extract(c.translations_json,'$.'||p.language||'.title')) AS title,n.url
+      coalesce(n.title,json_extract(c.translations_json,'$.'||p.language||'.title')) AS title,n.url,
+      coalesce(n.body,nullif(trim(json_extract(c.translations_json,'$.'||p.language||'.summary')),''),
+        json_extract(c.translations_json,'$.'||p.language||'.body'),'') AS excerpt,
+      coalesce(n.public_byline,c.public_byline,'') AS byline,coalesce(c.organization,'') AS organization,
+      CASE WHEN n.status='published' AND n.cover_revision<>'' THEN '/api/publication-covers/news/'||n.id||'/'||n.cover_revision||'.jpg'
+           WHEN c.cover_revision<>'' THEN '/api/publication-covers/opportunity/'||c.id||'/'||c.cover_revision||'.jpg'
+           ELSE '' END AS cover_url,
+      CASE WHEN n.status='published' THEN n.cover_alt ELSE coalesce(c.cover_alt,'') END AS cover_alt
       ${eligible} AND o.event_id=? AND o.user_id=?`);
     return {
       async exportFor(user){
@@ -86,7 +94,7 @@ export function createNewsAlerts({db,clients,env,fetchImpl}){
       if(enabled)await admin.rest('rpc/subscribe_news_email',{method:'POST',body:{p_user:user,p_language:language}});
       else await admin.rest('news_email_preferences',{method:'DELETE',query:{user_id:'eq.'+user}});
     },
-    async claim(){const rows=await admin.rest('rpc/claim_news_email',{method:'POST',body:{}});return rows[0]??null;},
+    async claim(){const rows=await admin.rest('rpc/claim_publication_email_with_cover',{method:'POST',body:{}});return rows[0]??null;},
     async settle(job,status){await admin.rest('news_email_outbox',{method:'PATCH',
       query:{event_id:'eq.'+job.event_id,user_id:'eq.'+job.user_id,status:'eq.sending',attempts:'eq.'+job.attempts},
       body:{status,available_at:new Date(Date.now()+900000).toISOString()}});},
@@ -105,7 +113,6 @@ export async function deliverBatch({alerts,send,origin,limit=10,deadline=Infinit
   const site=new URL(origin);
   if(site.protocol!=='https:'||site.username||site.password)throw Error('a public HTTPS origin is required');
   if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw Error('invalid batch size');
-  const preference=new URL('/community.html#news-email',site).href;
   const counts={sent:0,failed:0,uncertain:0,deferred:0};
   for(let i=0;i<limit&&Date.now()<deadline;i++){
     const job=await alerts.claim();
@@ -113,7 +120,6 @@ export async function deliverBatch({alerts,send,origin,limit=10,deadline=Infinit
     let status='sent';
     try{
       const title=job.title.trim();
-      const escape=value=>value.replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
       const deliveryTest=job.event_id.startsWith('test:');
       let destination=job.catalog_id
         ?new URL('/opportunities.html?id='+encodeURIComponent(job.catalog_id),site).href
@@ -123,15 +129,12 @@ export async function deliverBatch({alerts,send,origin,limit=10,deadline=Infinit
         const link=new URL(job.url);
         if(link.protocol==='https:'&&!link.username&&!link.password)destination=link.href;
       }
-      const labels={
-        es:['Abrir la publicación','Recibes este aviso porque activaste las novedades de NODAL.','Cambiar mi preferencia'],
-        en:['Open this update','You are receiving this because you subscribed to NODAL news.','Change my preference'],
-        pt:['Abrir a publicação','Você recebe este aviso porque ativou as novidades da NODAL.','Alterar minha preferência'],
-      };
-      const [open,reason,manage]=labels[job.language]??labels.es;
-      await send({to:job.email,subject:'NODAL · '+title,language:job.language,fromName:'NODAL',
-        text:title+'\n\n'+open+': '+destination+'\n\n'+reason+' '+manage+': '+preference,
-        html:'<p>'+escape(title)+'</p><p><a href="'+escape(destination)+'">'+open+'</a></p><p>'+reason+' <a href="'+preference+'">'+manage+'</a></p>'});
+      const message=publicationEmail({
+        language:job.language,title,opportunity:Boolean(job.catalog_id),destination,origin:site.origin,
+        excerpt:job.excerpt,authorName:job.byline,organizationName:job.organization,
+        coverUrl:job.cover_url,coverAlt:job.cover_alt,
+      });
+      await send({to:job.email,fromName:'NODAL',...message});
     }catch(error){
       // A lost acknowledgement may already be in the inbox. Retry only confirmed, temporary refusals.
       status=error.delivery!=='no'?'uncertain':!error.permanent&&job.attempts<3?'queued':'failed';

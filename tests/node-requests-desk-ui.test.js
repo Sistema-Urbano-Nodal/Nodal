@@ -387,7 +387,7 @@ test('sets requests apart by whitespace, not a rule between every two', () => {
   assert.doesNotMatch(band, /border-left|border-top|border-bottom|\bborder:/, 'requests are separated by whitespace, not rules');
   assert.doesNotMatch(band, /text-transform|box-shadow/);
   assert.match(band, /\.admin-node-list\s*\{\s*display:\s*grid;\s*gap:\s*var\(--f-sp-4\);\s*\}/);
-  assert.match(adminPage(), /href="admin\.css\?v=20261109a"/);
+  assert.match(adminPage(), /href="admin\.css\?v=20261123f"/);
 });
 
 test('re-renders the band when the language changes', async () => {

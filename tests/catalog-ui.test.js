@@ -167,7 +167,7 @@ function deskI18n(lang = 'en', nodes = []) {
   return context.window.nodalI18n;
 }
 
-function adminHarness(fetchImpl = () => Promise.reject(new Error('network must not run in the editor unit test')), { lang = 'en', confirm = () => true, windowListeners = null } = {}) {
+function adminHarness(fetchImpl = () => Promise.reject(new Error('network must not run in the editor unit test')), { lang = 'en', confirm = () => true, windowListeners = null, decodeImage } = {}) {
   const ids = new Map([...adminPage().matchAll(/\bid="([^"]+)"/g)].map((match) => [match[1], new FakeNode(match[1])]));
   const document = {
     getElementById: (id) => ids.get(id) ?? null,
@@ -191,6 +191,7 @@ function adminHarness(fetchImpl = () => Promise.reject(new Error('network must n
     confirm: (message) => { confirms.push(message); return confirm(message); },
     setTimeout,
   };
+  if (decodeImage) context.createImageBitmap = decodeImage;
   if (windowListeners) context.addEventListener = (name, handler) => windowListeners.set(name, handler);
   context.window = context;
   const source = adminScript();
@@ -1114,6 +1115,7 @@ test('admin client serializes translations atomically and preserves edits on sta
   set('adminSubtype', 'grant');
   set('adminVisibility', 'members');
   set('adminOrganization', 'Operator-entered organization');
+  set('adminCatalogByline', '  Equipe editorial  ');
   set('adminLocation', 'Operator-entered place');
   set('adminTopics', 'mobility, housing');
   set('adminStartsAt', '2026-09-01T09:00');
@@ -1136,6 +1138,13 @@ test('admin client serializes translations atomically and preserves edits on sta
   assert.deepEqual(Object.keys(payload.translations), ['en', 'es', 'pt']);
   assert.deepEqual(payload.translations.pt, { title: 'Title Pt', summary: 'Summary Pt', body: 'Body Pt', cta: 'CTA Pt' });
   assert.equal(payload.status, 'published');
+  assert.equal(payload.publicByline, 'Equipe editorial');
+  harness.api.fillEditor({...payload, id:'credited-item', version:1});
+  assert.equal(harness.ids.get('adminCatalogByline').value, 'Equipe editorial');
+  assert.equal(harness.ids.get('adminCatalogBylineField').hidden, false);
+  harness.api.fillEditor({...payload, kind:'resource'});
+  assert.equal(harness.ids.get('adminCatalogBylineField').hidden, true);
+  assert.equal(harness.api.serializeEditor('draft').publicByline, undefined);
   assert.equal(payload.actionUrl, 'https://action.example/apply');
   assert.equal(payload.sourceLabel, 'Official grant page');
   assert.deepEqual(payload.topics, ['mobility', 'housing']);
@@ -1846,6 +1855,7 @@ test('desk lists NODAL news with pagination and creates a post idempotently with
 
   const set = (id, value) => { h.ids.get(id).value = value; };
   set('adminNewsTitle', '  Course closed  ');
+  set('adminNewsByline', '  Redacción NODAL  ');
   set('adminNewsBody', 'The first course is full.\nThe next one opens in November.');
   set('adminNewsUrl', 'https://nodal.example/courses');
   h.ids.get('adminNewsPinned').checked = true;
@@ -1858,7 +1868,7 @@ test('desk lists NODAL news with pagination and creates a post idempotently with
   const [first, second] = posts.map((request) => JSON.parse(request.options.body));
   assert.match(first.id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.equal(second.id, first.id, 'a retry reuses the client id so the server can answer with the stored post');
-  assert.deepEqual(second, { id: first.id, title: 'Course closed', body: 'The first course is full.\nThe next one opens in November.', url: 'https://nodal.example/courses', pinned: true, status: 'published' });
+  assert.deepEqual(second, { id: first.id, title: 'Course closed', body: 'The first course is full.\nThe next one opens in November.', publicByline: 'Redacción NODAL', url: 'https://nodal.example/courses', pinned: true, status: 'published' });
   assert.equal(posts[1].options.headers['Content-Type'], 'application/json');
   assert.equal(h.api.news.items[0].id, first.id, 'the new post leads the list');
   assert.equal(h.api.news.current.id, first.id);
@@ -1917,7 +1927,7 @@ test('a new post whose lost save reached the server is never reported as publish
   await h.ids.get('adminNewsConflictOverwrite').listeners.get('click')();
   assert.equal(requests.at(-1).options.method, 'PATCH');
   assert.equal(requests.at(-1).url, `/api/admin/news/${second}`);
-  assert.deepEqual(requests.at(-1).body, { version: 1, title: 'New title', body: '', url: '', pinned: false, status: 'published' });
+  assert.deepEqual(requests.at(-1).body, { version: 1, title: 'New title', body: '', publicByline: '', url: '', pinned: false, status: 'published' });
   assert.equal(h.ids.get('adminNewsStatus').textContent, 'Published. Members see it now.');
   assert.equal(h.api.news.current.version, 2);
 
@@ -1981,7 +1991,7 @@ test('desk news edits send the version, survive conflicts and deletions elsewher
     requests.push({ url, options, body: options.body ? JSON.parse(options.body) : null });
     return reply(url, options);
   });
-  h.api.news.items = [newsItem('n1', { version: 4, title: 'Original' })];
+  h.api.news.items = [newsItem('n1', { version: 4, title: 'Original', publicByline:'Ana Silva' })];
   h.api.fillNews(h.api.news.items[0]);
   h.ids.get('adminNewsTitle').value = 'Mine';
 
@@ -1989,7 +1999,7 @@ test('desk news edits send the version, survive conflicts and deletions elsewher
   assert.equal(await h.api.saveNews('published'), false);
   assert.equal(requests[0].url, '/api/admin/news/n1');
   assert.equal(requests[0].options.method, 'PATCH');
-  assert.deepEqual(requests[0].body, { version: 4, title: 'Mine', body: 'Body', url: '', pinned: false, status: 'published' });
+  assert.deepEqual(requests[0].body, { version: 4, title: 'Mine', body: 'Body', publicByline: 'Ana Silva', url: '', pinned: false, status: 'published' });
   assert.equal(h.ids.get('adminNewsConflict').hidden, false);
   assert.equal(h.ids.get('adminNewsTitle').value, 'Mine', 'a conflict keeps the editor text');
   assert.equal(h.ids.get('adminNewsStatus').textContent, 'Not saved: someone else changed this post.');
@@ -2203,4 +2213,74 @@ test('desk runtime copy follows the language switch, including status lines and 
   h.i18n.apply('en');
   assert.equal(h.ids.get('adminRecordState').textContent, 'Published');
   assert.equal(h.ids.get('adminEditorStatus').textContent, 'Record loaded. Edits are not saved until you choose an action.');
+});
+
+test('the desk preserves saved covers on unrelated edits, updates alt alone, and explicitly restores the map', async () => {
+  const requests = [];
+  const h = adminHarness(async (url, options = {}) => {
+    if (options.method === 'PATCH') {
+      requests.push(JSON.parse(options.body));
+      return response({}, {ok:false, status:400});
+    }
+    return response({items:[]});
+  });
+  const coverUrl = '/api/publication-covers/news/record/existing.jpg';
+  const old = newsItem('one', {coverUrl, coverAlt:'Children crossing the road'});
+  h.api.fillNews(old);
+  const node = id => h.ids.get(id);
+  assert.equal(node('adminNewsCoverPreview').src, coverUrl);
+  assert.equal(node('adminNewsCoverAlt').value, old.coverAlt);
+  await h.api.saveNews('draft');
+  assert.ok(!Object.hasOwn(requests.at(-1),'coverImage'));
+  assert.ok(!Object.hasOwn(requests.at(-1),'coverAlt'));
+  node('adminNewsCoverAlt').value = 'Children at an intersection';
+  node('adminNewsCoverAlt').listeners.get('input')();
+  assert.equal(node('adminNewsCoverPreview').alt, 'Children at an intersection');
+  await h.api.saveNews('draft');
+  assert.equal(requests.at(-1).coverAlt, 'Children at an intersection');
+  assert.ok(!Object.hasOwn(requests.at(-1),'coverImage'));
+  node('adminNewsCoverRemove').listeners.get('click')();
+  await h.api.saveNews('draft');
+  assert.equal(requests.at(-1).coverImage, null);
+  assert.ok(!Object.hasOwn(requests.at(-1),'coverAlt'));
+  assert.equal(node('adminNewsCoverPreview').src, '/assets/email/nodal-network-map-v1.png');
+  h.api.fillNews(newsItem('two'));
+  assert.equal(node('adminNewsCoverAlt').value, '');
+  await h.api.saveNews('draft');
+  assert.ok(!Object.hasOwn(requests.at(-1),'coverImage'));
+
+  h.api.fillEditor({kind:'opportunity',coverUrl:coverUrl.replace('/news/','/opportunity/'),coverAlt:'Old poster'});
+  let catalog = h.api.serializeEditor('published');
+  assert.ok(!Object.hasOwn(catalog,'coverImage') && !Object.hasOwn(catalog,'coverAlt'));
+  node('adminCatalogCoverAlt').value = 'Revised poster description';
+  catalog = h.api.serializeEditor('published');
+  assert.equal(catalog.coverAlt,'Revised poster description');
+  assert.ok(!Object.hasOwn(catalog,'coverImage'));
+  node('adminKind').value = 'resource';
+  node('adminKind').listeners.get('change')();
+  assert.equal(node('adminCatalogCover').hidden, true);
+  assert.ok(!Object.hasOwn(h.api.serializeEditor('draft'),'coverAlt'));
+  node('adminKind').value = 'opportunity';
+  node('adminKind').listeners.get('change')();
+  node('adminCatalogCoverRemove').listeners.get('click')();
+  assert.equal(h.api.serializeEditor('published').coverImage,null);
+});
+
+test('a pending cover blocks saving and its late decode cannot overwrite another item', async () => {
+  const pending = deferredResponse();
+  const h = adminHarness(undefined, {decodeImage:() => pending.promise});
+  h.api.fillNews(newsItem('first'));
+  const file = h.ids.get('adminNewsCoverFile');
+  file.files = [{type:'image/png', size:500}];
+  const changed = file.listeners.get('change')();
+  assert.equal(h.ids.get('adminNewsCoverStatus').textContent, 'Preparing image…');
+  assert.equal(await h.api.saveNews('published'), false);
+  assert.equal(file.focused, true);
+  const other = newsItem('second',{coverUrl:'/api/publication-covers/news/second/saved.jpg',coverAlt:'Previously saved credit'});
+  h.api.fillNews(other);
+  pending.reject(new Error('old file finished after switching records'));
+  await changed;
+  assert.equal(h.ids.get('adminNewsCoverPreview').src, other.coverUrl);
+  assert.equal(h.ids.get('adminNewsCoverAlt').value, other.coverAlt);
+  assert.equal(h.ids.get('adminNewsCoverStatus').textContent, '');
 });

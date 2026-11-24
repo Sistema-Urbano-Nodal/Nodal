@@ -1,3 +1,4 @@
+import {emailLetter,INK,COPY,MUTED,FOREST,LEAF,MINT} from './email-letter.js';
 import {FIIU_EVENT} from './fiiu-domain.js';
 import {createMailTransport,validAddress} from './mailer.js';
 
@@ -62,7 +63,6 @@ const LOCALES={en:'en-GB',es:'es-PE',pt:'pt-BR'};
    subdomain. The example domains publish a null MX, so a message to them only bounces against the sender. */
 export function isReservedRecipient(email){const domain=String(email??'').split('@').pop().toLowerCase().replace(/\.$/,'');return /(?:^|\.)(?:test|example|invalid|localhost|example\.(?:com|net|org))$/.test(domain);}
 export const emailLanguage=value=>EMAIL_LANGUAGES.includes(value)?value:'es';
-const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 // A first name made safe for any context it lands in: control characters (CR/LF included) and line breaks become
 // spaces, and invisible format characters (bidi overrides among them) are dropped, except the joiners and emoji tags that
 // spell names and emoji (ZWNJ, ZWJ, U+E0020–E007F); single spaces, at most `max` characters (100 for a first name; pass Infinity for a field validated elsewhere), never half of one. A name
@@ -110,12 +110,6 @@ function itemView(activity,registration,row){
    landing page's mint highlighter, the itinerary as a plan sheet with a time rail and no rules, the landing's
    press-plate button and a sign-off. No boxes, bands, chips or dividing lines. Montserrat where the reader has it,
    tuned for Arial (no web font is loaded: the site self-hosts Montserrat and never calls Google). */
-const FONT="'Montserrat',Arial,Helvetica,sans-serif";
-const PAPER='#F2ECEC',INK='#1d271b',COPY='#2f3a2b',MUTED='#586253',FOREST='#3D5C38',LEAF='#59BC53',MINT='#ADDEA8';
-/* The lockup PNGs in web/assets/email/, published by scripts/build-static.js with a cross-origin resource policy so mail
-   clients may load them. Every email already sent points at these paths: never change their bytes; a new version of
-   the logo needs a new file name. */
-const EMAIL_LOCKUP={light:'/assets/email/nodal-lockup.png',dark:'/assets/email/nodal-lockup-dark.png',width:168,height:64};
 const festivalDate=(value,lang,options)=>new Intl.DateTimeFormat(LOCALES[lang],{...options,timeZone:FIIU_EVENT.timeZone}).format(new Date(`${value}T12:00:00-05:00`));
 
 /* The letter's parts in one language, shared by the registration summary and the one-off notices (partyEmail).
@@ -126,36 +120,16 @@ const festivalDate=(value,lang,options)=>new Intl.DateTimeFormat(LOCALES[lang],{
    (the date plate, the 4px press-plate cells) falls back to "at least" and grows. */
 function letterKit(lang,origin,event){
  const i=EMAIL_LANGUAGES.indexOf(lang),row=key=>EMAIL_ROWS[key][i];
- const e=escapeHtml,f=`font-family:${FONT};`;
- const type=(size,lh,weight,color,extra='')=>`${f}font-size:${size}px;mso-line-height-rule:exactly;line-height:${lh}px;font-weight:${weight};color:${color};${extra}`;
- const es=value=>lang==='es'?e(value):`<span lang="es">${e(value)}</span>`;
- const p=(content,{size=16,lh=26,weight=400,color=COPY,cls='c-copy',margin='0 0 16px'}={})=>`<p class="${cls}" style="margin:${margin};${type(size,lh,weight,color)}">${content}</p>`;
- const a=(href,label)=>`<a class="c-link" href="${e(href)}" style="color:${FOREST};font-weight:700;text-decoration:underline;">${label}</a>`;
- const runIn=title=>`<strong class="c-ink" style="font-weight:700;color:${INK};">${e(title)}.</strong> `;
- const spacer=size=>`font-size:${size}px;mso-line-height-rule:exactly;line-height:${size}px;`;
- /* The landing page's press plate: leaf face, 2px ink border, 7px radius and a hard 4px ink offset. box-shadow is not
-    reliable in email, so the offset is table cells: an ink column beside the face whose first 4px are covered by a
-    paper notch, and an ink strip under the face starting 4px in. */
- const pressPlate=(href,label)=>`<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;mso-table-lspace:0;mso-table-rspace:0;"><tr>`
-  +`<td class="btn-face" bgcolor="${LEAF}" style="background:${LEAF};border:2px solid ${INK};border-radius:7px;mso-padding-alt:12px 22px;"><a class="btn-a" href="${e(href)}" style="display:inline-block;padding:12px 22px;${type(16,20,700,INK,'text-decoration:none;border-radius:7px;')}">${e(label)}</a></td>`
-  +`<td class="btn-shadow" width="4" valign="top" bgcolor="${INK}" style="width:4px;background:${INK};font-size:0;line-height:0;"><table role="presentation" width="4" cellpadding="0" cellspacing="0" border="0"><tr><td class="bg" width="4" height="4" bgcolor="${PAPER}" style="width:4px;height:4px;background:${PAPER};${spacer(4)}">&nbsp;</td></tr></table></td></tr>`
-  +`<tr><td style="padding:0 0 0 4px;font-size:0;line-height:0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="btn-shadow" height="4" bgcolor="${INK}" style="height:4px;background:${INK};border-radius:0 0 0 5px;${spacer(4)}">&nbsp;</td></tr></table></td>`
-  +`<td class="btn-shadow" width="4" height="4" bgcolor="${INK}" style="width:4px;height:4px;background:${INK};border-radius:0 0 5px 0;${spacer(4)}">&nbsp;</td></tr></table>`;
- // The FIIU page's second action beside the press plate: a plain outline on the paper.
- const outline=(href,label)=>`<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;"><tr><td class="btn2" style="border:2px solid ${FOREST};border-radius:7px;mso-padding-alt:12px 22px;"><a class="btn2-a" href="${e(href)}" style="display:inline-block;padding:12px 22px;${type(16,20,700,FOREST,'text-decoration:none;')}">${e(label)}</a></td></tr></table>`;
-
+ const kit=emailLetter(lang,origin);
+ const {e,type,p,lockup}=kit;
  /* The letterhead: the lockup on the left (its alt text set in large ink type, so the email still opens with NODAL when
     images are blocked; the light-on-dark version replaces it in dark mode) and the FIIU date plate on the right. The
     lockup is fixed and "20–25" cannot wrap, so the inline sizes (44px plate, 24px gutters: what a client that drops
     the <style> blocks shows) keep the letter within a 360px phone; the phone query narrows them to fit 320px and the
     wide query restores the full 52px plate and 32px gutters where there is room. */
- const logoText=type(28,64,800,INK,'letter-spacing:1px;');
  const [startDay,endDay]=[event.startsOn,event.endsOn].map(date=>festivalDate(date,lang,{day:'numeric'}));
  const letterhead=`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>`
-  +`<td valign="top" style="padding:0;"><a href="${e(origin)}/" style="text-decoration:none;color:${INK};">`
-  +`<img class="logo-light" src="${e(origin)}${EMAIL_LOCKUP.light}" width="${EMAIL_LOCKUP.width}" height="${EMAIL_LOCKUP.height}" alt="NODAL" style="display:block;border:0;outline:none;text-decoration:none;width:${EMAIL_LOCKUP.width}px;height:${EMAIL_LOCKUP.height}px;${logoText}">`
-  +`<!--[if !mso]><!--><img class="logo-dark" src="${e(origin)}${EMAIL_LOCKUP.dark}" width="${EMAIL_LOCKUP.width}" height="${EMAIL_LOCKUP.height}" alt="NODAL" style="display:none;max-height:0;overflow:hidden;border:0;outline:none;text-decoration:none;${logoText}"><!--<![endif]-->`
-  +`</a></td>`
+  +`<td valign="top" style="padding:0;">${lockup}</td>`
   +`<td valign="top" align="right" style="padding:0 0 0 12px;text-align:right;">`
   +`<p class="c-ink" style="margin:0;${type(13,18,700,INK)}">${e(event.title)}</p>`
   +`<p class="c-ink num" style="margin:4px 0 0;${type(44,44,800,INK,'letter-spacing:-1px;white-space:nowrap;')}">${e(startDay)}<span style="color:${LEAF};font-weight:400;">&ndash;</span>${e(endDay)}</p>`
@@ -170,28 +144,7 @@ function letterKit(lang,origin,event){
   p(`${e(row(footerKey))} <a class="c-muted" href="${e(`${origin}/privacy.html`)}" style="color:${MUTED};text-decoration:underline;">${e(row('privacy'))}</a>`,{size:12,lh:18,color:MUTED,cls:'c-muted',margin:'0'}),
  ];
 
- const document=({subject,preheader,body})=>`<!DOCTYPE html>
-<html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="x-apple-disable-message-reformatting"><meta name="format-detection" content="telephone=no,date=no,address=no,email=no,url=no"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>${e(subject)}</title>
-<!--[if mso]><style>body,table,td,p,a,span,strong,h1,h2{font-family:Arial,Helvetica,sans-serif!important}</style><![endif]-->
-<style>
-@media only screen and (min-width:521px){.gutter{padding-left:32px!important;padding-right:32px!important}.num{font-size:52px!important;line-height:52px!important}}
-@media only screen and (max-width:520px){.gutter{padding-left:20px!important;padding-right:20px!important}.top{padding-top:28px!important}.h1{font-size:26px!important;line-height:31px!important;margin-top:32px!important}.num{font-size:34px!important;line-height:34px!important}.rail,.main{display:block!important;width:100%!important}.rail{padding:0 0 2px!important}.rail p{display:inline!important}.sep{display:inline!important}}
-</style>
-<style>
-@media (prefers-color-scheme:dark){.bg{background:#18211a!important;background-color:#18211a!important}.c-ink,.c-copy{color:#F2ECEC!important}.c-muted{color:#c3cbbf!important}.c-forest,.c-link{color:#ADDEA8!important}.hl{background-color:#ADDEA8!important;color:#18211a!important}.logo-light{display:none!important}.logo-dark{display:block!important;max-height:none!important;width:${EMAIL_LOCKUP.width}px!important;height:${EMAIL_LOCKUP.height}px!important;color:#F2ECEC!important}.btn-face{border-color:#F2ECEC!important}.btn-a{color:#18211a!important}.btn-shadow{background:#ADDEA8!important;background-color:#ADDEA8!important}.btn2{border-color:#ADDEA8!important}.btn2-a{color:#ADDEA8!important}}
-</style></head>
-<body class="bg" bgcolor="${PAPER}" style="margin:0;padding:0;background:${PAPER};-webkit-text-size-adjust:100%;">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;color:${PAPER};">${e(preheader)}</div>
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${'&zwnj;&nbsp;'.repeat(60)}</div>
-<table role="presentation" class="bg" width="100%" bgcolor="${PAPER}" cellpadding="0" cellspacing="0" border="0" style="background:${PAPER};"><tr><td class="top" align="center" style="padding:40px 0 48px;">
-<!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;"><tr><td class="gutter" align="left" style="padding:0 24px;text-align:left;${f}color:${COPY};">
-${body}
-</td></tr></table>
-<!--[if mso]></td></tr></table><![endif]-->
-</td></tr></table>
-</body></html>`;
- return {e,f,type,es,p,a,runIn,pressPlate,outline,letterhead,signature,document};
+ return {...kit,letterhead,signature};
 }
 
 /* {subject, html, text}. registration: the stored row (email, answers, labStatus); config: the festival settings

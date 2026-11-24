@@ -111,6 +111,10 @@ function normalizeTranslations(value) {
   return result;
 }
 
+export function publicationByline(value) {
+  return plainString(value, 'public byline', 120).replace(/\s+/gu, ' ');
+}
+
 function normalizeTopics(value) {
   if (value === undefined || value === null || value === '') return [];
   if (typeof value === 'string') {
@@ -132,6 +136,9 @@ export function validateCatalogDraft(input = {}) {
     status: enumValue(source.status, 'status', STATUSES, 'draft'),
     visibility: enumValue(source.visibility, 'visibility', VISIBILITIES, 'public'),
     translations: normalizeTranslations(source.translations),
+    ...(source.publicByline === undefined ? {} : { publicByline: publicationByline(source.publicByline) }),
+    ...(source.coverImage === undefined ? {} : { coverImage: source.coverImage }),
+    ...(source.coverAlt === undefined ? {} : { coverAlt: plainString(source.coverAlt,'image description',240) }),
     organization: plainString(source.organization, 'organization', LIMITS.organization),
     location: plainString(source.location, 'location', LIMITS.location),
     topics: normalizeTopics(source.topics),

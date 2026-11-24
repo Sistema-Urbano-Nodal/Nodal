@@ -58,9 +58,8 @@ const STATIC_ASSETS = [
   'nodal-community.webp',
   'nodal-wordmark.webp',
 ];
-/* Images the FIIU summary email loads from the public origin (server/fiiu-email.js). Emails already sent point at
-   these URLs for good: never change a file's bytes; a new version needs a new name. */
-const STATIC_EMAIL_ASSETS = ['nodal-lockup.png', 'nodal-lockup-dark.png'];
+// Delivered emails keep using these URLs. Publish revised artwork under a new name.
+const STATIC_EMAIL_ASSETS = ['nodal-lockup.png', 'nodal-lockup-dark.png', 'nodal-network-map-v1.png'];
 const STATIC_FONTS = [
   'montserrat-v31-latin-normal.woff2',
   'montserrat-v31-latin-ext-normal.woff2',

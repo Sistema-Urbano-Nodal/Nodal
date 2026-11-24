@@ -2,6 +2,7 @@
    Run with `node server/server.js` (PORT, DATABASE_PATH, REDIS_URL optional). */
 
 import http from 'node:http';
+import {COVER_BODY_LIMIT, COVER_ROUTE} from './publication-cover.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -90,8 +91,8 @@ const SESSION_ALIASES = new Set(['/fiiu-talk', '/fiiu-talk.htm', '/fiiu-talk.htm
 const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'messages.css', 'workspace-notifications.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css', 'admin-home.css']);
 const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
 const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
-// The FIIU summary email's logo (server/fiiu-email.js), loaded by mail clients from other origins.
-const STATIC_EMAIL_ASSETS = new Set(['nodal-lockup.png', 'nodal-lockup-dark.png']);
+// Published email artwork is loaded by mail clients from other origins.
+const STATIC_EMAIL_ASSETS = new Set(['nodal-lockup.png', 'nodal-lockup-dark.png', 'nodal-network-map-v1.png']);
 const AUTH_RATE_WINDOW_MS = 5 * 60 * 1000;
 const AUTH_RATE_LIMIT = envInt('AUTH_RATE_LIMIT', 10);
 // A classroom may share one public IP. Keep account guessing strict while
@@ -930,6 +931,8 @@ function catalogPublicProjection(item, lang, { interestStatus, historical = fals
   const localized = localizeCatalogItem(item, lang, { fallback: historical });
   return {
     ...localized,
+    publicByline: item.publicByline,
+    ...(item.coverUrl && item.status === 'published' && item.visibility === 'public' ? {coverUrl:item.coverUrl, coverAlt:item.coverAlt} : {}),
     organization: item.organization,
     location: item.location,
     topics: item.topics,
@@ -1469,10 +1472,10 @@ export function createApp({
         || /^\/api\/(?:fiiu|admin\/fiiu)(?:\/|$)/.test(pathname)
         || /^\/api\/(?:admin\/)?news(?:\/|$)/.test(pathname)
         || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback(?:\/|$)|admin\/feedback(?:\/|$))/.test(pathname)
-        || pathname === '/api/me/photo' || PHOTO_ROUTE.test(pathname)
+        || pathname === '/api/me/photo' || PHOTO_ROUTE.test(pathname) || COVER_ROUTE.test(pathname)
         || isWorkspaceRoute(pathname) || ID_ONLY_API.test(pathname) || (req.method === 'DELETE' && pathname === '/api/me');
       const optionalSession = (req.method === 'GET' || req.method === 'HEAD')
-        && (isApiRequest ? OPTIONAL_SESSION_API.test(pathname) : canonical === '/login.html');
+        && (isApiRequest ? OPTIONAL_SESSION_API.test(pathname) || COVER_ROUTE.test(pathname) : canonical === '/login.html');
       let session = { user: null, cookies: [] };
       if (useDb && needsSession) {
         try {
@@ -1702,7 +1705,7 @@ export function createApp({
         if (!requireAdmin(res, sessionUser)) return;
         if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
         if (!throttle(catalogWriteLimiter, res, req, sessionUser, 'admin-catalog')) return;
-        const item = await repository.createCatalogItem(catalogAdminInput(await readJsonBody(req)), sessionUser.id);
+        const item = await repository.createCatalogItem(catalogAdminInput(await readJsonBody(req, COVER_BODY_LIMIT)), sessionUser.id);
         send(res, 201, { item });
         return;
       }
@@ -1712,7 +1715,7 @@ export function createApp({
         if (!requireAdmin(res, sessionUser)) return;
         if (!sameOrigin(req)) { send(res, 403, { error: 'cross-origin request rejected' }); return; }
         if (!throttle(catalogWriteLimiter, res, req, sessionUser, 'admin-catalog')) return;
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, COVER_BODY_LIMIT);
         const version = requiredVersion(body.version);
         const input = catalogAdminInput(body);
         try {

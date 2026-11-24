@@ -28,6 +28,8 @@
     subtype: byId('adminSubtype'),
     visibility: byId('adminVisibility'),
     organization: byId('adminOrganization'),
+    catalogByline: byId('adminCatalogByline'),
+    catalogBylineField: byId('adminCatalogBylineField'),
     location: byId('adminLocation'),
     topics: byId('adminTopics'),
     topicsError: byId('adminTopicsError'),
@@ -75,6 +77,8 @@
     newsBody: byId('adminNewsBody'),
     newsBodyCount: byId('adminNewsBodyCount'),
     newsBodyError: byId('adminNewsBodyError'),
+    newsByline: byId('adminNewsByline'),
+    newsBylineError: byId('adminNewsBylineError'),
     newsUrl: byId('adminNewsUrl'),
     newsUrlError: byId('adminNewsUrlError'),
     newsPinned: byId('adminNewsPinned'),
@@ -179,6 +183,128 @@
   function sayAfter(node, key, error, fallback) {
     show(node, () => `${t(key)} ${error?.server || (error?.key ? t(error.key, { status: error.status }) : t(fallback))}`);
   }
+
+  function readImageData(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function preparePublicationCover(file) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 12 * 1024 * 1024) {
+      throw new Error('Unsupported cover');
+    }
+    let image;
+    if (typeof createImageBitmap === 'function') {
+      image = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } else {
+      image = new Image();
+      image.src = await readImageData(file);
+      await image.decode();
+    }
+    try {
+      if (!image.width || !image.height) throw new Error('Empty image');
+      const canvas = document.createElement('canvas');
+      canvas.width = 1080;
+      canvas.height = 600;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#F2ECEC';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const scale = Math.min(canvas.width / image.width, canvas.height / image.height);
+      const width = Math.max(1, Math.round(image.width * scale));
+      const height = Math.max(1, Math.round(image.height * scale));
+      ctx.drawImage(image, Math.floor((canvas.width - width) / 2), Math.floor((canvas.height - height) / 2), width, height);
+      for (const quality of [0.9, 0.76, 0.59, 0.42]) {
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+        if (blob && blob.type === 'image/jpeg' && blob.size <= 300 * 1024) return await readImageData(blob);
+      }
+      throw new Error('Cover could not be compressed');
+    } finally {
+      image.close?.();
+    }
+  }
+
+  function coverEditor(prefix) {
+    const field = byId(prefix + 'Cover'), picker = byId(prefix + 'CoverFile');
+    const alt = byId(prefix + 'CoverAlt'), altLabel = byId(prefix + 'CoverAltLabel');
+    const image = byId(prefix + 'CoverPreview'), remove = byId(prefix + 'CoverRemove'), feedback = byId(prefix + 'CoverStatus');
+    let savedUrl = '', savedAlt = '', replacement, state = '', selection = 0;
+
+    const currentUrl = () => replacement === undefined ? savedUrl : replacement;
+    function refresh() {
+      const url = currentUrl();
+      image.src = url || '/assets/email/nodal-network-map-v1.png';
+      image.alt = url ? alt.value.trim() : '';
+      altLabel.hidden = !url;
+      remove.hidden = !url && !state;
+    }
+    function reset(item) {
+      ++selection;
+      savedUrl = item?.coverUrl || '';
+      savedAlt = item?.coverAlt || '';
+      replacement = undefined;
+      state = '';
+      picker.value = '';
+      alt.value = savedAlt;
+      say(feedback, '');
+      refresh();
+    }
+    picker.addEventListener('change', async () => {
+      const file = picker.files?.[0];
+      picker.value = '';
+      if (!file) return;
+      const turn = ++selection;
+      state = 'preparing';
+      say(feedback, 'ops.cover.preparing');
+      refresh();
+      try {
+        const prepared = await preparePublicationCover(file);
+        if (turn !== selection) return;
+        replacement = prepared;
+        alt.value = '';
+        state = '';
+        say(feedback, 'ops.cover.ready');
+      } catch {
+        if (turn !== selection) return;
+        state = 'invalid';
+        say(feedback, 'ops.cover.invalid');
+      }
+      refresh();
+    });
+    remove.addEventListener('click', () => {
+      ++selection;
+      state = '';
+      replacement = savedUrl ? null : undefined;
+      alt.value = '';
+      picker.value = '';
+      say(feedback, '');
+      refresh();
+      picker.focus();
+    });
+    alt.addEventListener('input', () => { image.alt = alt.value.trim(); });
+    return {
+      field, reset,
+      pending: () => Boolean(state),
+      ready() {
+        if (!state) return true;
+        say(feedback, 'ops.cover.' + state);
+        picker.focus();
+        return false;
+      },
+      fields() {
+        const result = {};
+        if (replacement !== undefined) result.coverImage = replacement;
+        if (currentUrl() && (replacement !== undefined || alt.value.trim() !== savedAlt)) result.coverAlt = alt.value.trim();
+        return result;
+      },
+    };
+  }
+
+  const newsCover = coverEditor('adminNews');
+  const catalogCover = coverEditor('adminCatalog');
 
   const text = (value) => String(value ?? '').trim();
   const isHttps = (value) => {
@@ -292,6 +418,7 @@
         pt: readTranslation('Pt'),
       },
       organization: text(elements.organization.value),
+      ...(elements.kind.value === 'opportunity' ? { publicByline: text(elements.catalogByline.value), ...catalogCover.fields() } : {}),
       location: text(elements.location.value),
       topics,
       startsAt: apiDate(elements.startsAt.value, true),
@@ -361,6 +488,8 @@
 
   function updateConditionalFields() {
     const opportunity = elements.kind.value === 'opportunity';
+    elements.catalogBylineField.hidden = !opportunity;
+    catalogCover.field.hidden = !opportunity;
     elements.subtype.disabled = !opportunity;
     if (!opportunity) elements.subtype.value = '';
     const external = elements.actionMode.value === 'external';
@@ -394,6 +523,8 @@
     elements.subtype.value = item.subtype || '';
     elements.visibility.value = item.visibility;
     elements.organization.value = item.organization || '';
+    elements.catalogByline.value = item.publicByline || '';
+    catalogCover.reset(item);
     elements.location.value = item.location || '';
     elements.topics.value = Array.isArray(item.topics) ? item.topics.join(', ') : '';
     elements.startsAt.value = localDate(item.startsAt, true);
@@ -417,7 +548,7 @@
     state.catalogSnapshot = JSON.stringify(serializeEditor(null));
   }
 
-  const catalogDirty = () => JSON.stringify(serializeEditor(null)) !== state.catalogSnapshot;
+  const catalogDirty = () => (elements.kind.value === 'opportunity' && catalogCover.pending()) || JSON.stringify(serializeEditor(null)) !== state.catalogSnapshot;
   // Opening another record, or a blank one, replaces every field, all three translations included: unsaved edits go only once staff agree.
   // Reloading the server's version after a conflict is a choice already made, so it does not ask.
   const keepCatalogEdits = () => catalogDirty() && !window.confirm(t('ops.catalog.discard'));
@@ -536,6 +667,7 @@
 
   function setBusy(value) {
     state.busy = value;
+    catalogCover.field.disabled = value;
     for (const button of [elements.saveDraft, elements.publish, elements.archive, elements.saveFeature]) button.disabled = value;
   }
 
@@ -546,7 +678,7 @@
   }
 
   async function saveCatalog(status) {
-    if (state.busy) return;
+    if (state.busy || (elements.kind.value === 'opportunity' && !catalogCover.ready())) return;
     const topics = validateEditorTopics();
     if (!topics) return;
     const payload = serializeEditor(status, topics);
@@ -950,20 +1082,22 @@
     const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
     return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
   })(globalThis.crypto?.getRandomValues?.(new Uint8Array(16)) || Uint8Array.from({ length: 16 }, () => Math.random() * 256));
-  const NEWS_LIMITS = { title: 160, body: 2000, url: 500 };
-  const NEWS_FIELDS = { title: ['newsTitle', 'newsTitleError'], body: ['newsBody', 'newsBodyError'], url: ['newsUrl', 'newsUrlError'] };
+  const NEWS_LIMITS = { title: 160, body: 2000, publicByline: 120, url: 500 };
+  const NEWS_FIELDS = { title: ['newsTitle', 'newsTitleError'], body: ['newsBody', 'newsBodyError'], publicByline: ['newsByline', 'newsBylineError'], url: ['newsUrl', 'newsUrlError'] };
   const news = { items: [], cursor: null, current: null, draftId: uuid(), conflict: null, pending: 'draft', snapshot: '', controller: null, request: 0, busy: false };
 
   function readNews(status) {
     return {
       title: text(elements.newsTitle.value),
       body: text(elements.newsBody.value),
+      publicByline: text(elements.newsByline.value),
+      ...newsCover.fields(),
       url: text(elements.newsUrl.value),
       pinned: elements.newsPinned.checked,
       status,
     };
   }
-  const newsDirty = () => JSON.stringify(readNews()) !== news.snapshot;
+  const newsDirty = () => newsCover.pending() || JSON.stringify(readNews()) !== news.snapshot;
   // The staff bar (admin-nav.js) asks before it signs out while a post or a catalog record has unsaved edits. Once it has
   // signed out the session is closed, so nothing could be saved: leaving then asks nothing more.
   window.nodalUnsaved = () => newsDirty() || catalogDirty();
@@ -985,6 +1119,7 @@
     const errors = {
       title: !payload.title ? 'ops.news.errTitle' : payload.title.length > NEWS_LIMITS.title ? 'ops.news.errTitleLong' : '',
       body: payload.body.length > NEWS_LIMITS.body ? 'ops.news.errBodyLong' : '',
+      publicByline: payload.publicByline.length > NEWS_LIMITS.publicByline ? 'ops.news.errBylineLong' : '',
       url: payload.url && (!isHttps(payload.url) || payload.url.length > NEWS_LIMITS.url) ? 'ops.news.errUrl' : '',
     };
     for (const [field, key] of Object.entries(errors)) newsFieldError(field, key);
@@ -1053,6 +1188,8 @@
     elements.newsConflict.hidden = true;
     elements.newsTitle.value = item?.title || '';
     elements.newsBody.value = item?.body || '';
+    elements.newsByline.value = item?.publicByline || '';
+    newsCover.reset(item);
     elements.newsUrl.value = item?.url || '';
     elements.newsPinned.checked = Boolean(item?.pinned);
     for (const field of Object.keys(NEWS_FIELDS)) newsFieldError(field, '');
@@ -1113,6 +1250,7 @@
 
   function setNewsBusy(value) {
     news.busy = value;
+    newsCover.field.disabled = value;
     for (const button of [elements.newsPublish, elements.newsDraft, elements.newsDelete, elements.newsConflictOverwrite]) button.disabled = value;
   }
 
@@ -1148,7 +1286,7 @@
   }
 
   async function saveNews(status) {
-    if (news.busy) return false;
+    if (news.busy || !newsCover.ready()) return false;
     const payload = readNews(status);
     if (!validateNews(payload)) {
       say(elements.newsStatus, 'ops.news.fix');

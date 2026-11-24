@@ -11,8 +11,8 @@ import {snake} from '../server/courses-schema.js';
 import {createNewsStore,NEWS_FIELDS} from '../server/news-repository.js';
 import {createNewsApi,encodeNewsCursor} from '../server/news-api.js';
 
-const PUBLIC_KEYS=['body','id','pinned','publishedAt','title','url'];
-const ADMIN_KEYS=['body','createdAt','id','pinned','publishedAt','status','title','updatedAt','url','version'];
+const PUBLIC_KEYS=['body','id','pinned','publicByline','publishedAt','title','url'];
+const ADMIN_KEYS=['body','createdAt','id','pinned','publicByline','publishedAt','status','title','updatedAt','url','version'];
 const actors=db=>{
  const users={},cookies={};
  for(const name of ['member','admin','editor']){users[name]=createUser(db,{fullName:name,email:`${name}@example.test`,passwordHash:'unused',role:name==='member'?'member':'admin'});cookies[name]=createSession(db,users[name].id).cookie.split(';')[0];}
@@ -73,7 +73,7 @@ test('news is public to read, while the desk API needs an administrator, same-or
 
 test('a new item is validated field by field, trimmed and normalised, and a retried save returns the stored row',async t=>{
  const {post,db,users}=await setup(t);
- const invalid=[[{title:''},'title'],[{title:'   '},'title'],[{title:'x'.repeat(161)},'title'],[{title:7},'title'],[{body:'x'.repeat(2001)},'body'],[{body:null},'body'],
+ const invalid=[[{title:''},'title'],[{title:'   '},'title'],[{title:'x'.repeat(161)},'title'],[{title:7},'title'],[{body:'x'.repeat(2001)},'body'],[{body:null},'body'],[{publicByline:'x'.repeat(121)},'publicByline'],[{publicByline:'<b>Ana</b>'},'publicByline'],
   [{url:'http://example.test/'},'url'],[{url:'javascript:alert(1)'},'url'],[{url:'https:example.test'},'url'],[{url:'https://user:pw@example.test/'},'url'],
   [{url:'https://example.test/'.padEnd(501,'x')},'url'],[{url:'not a url'},'url'],[{url:7},'url'],[{status:'archived'},'status'],[{status:null},'status'],[{pinned:'yes'},'pinned'],[{id:'not-a-uuid'},'id']];
  for(const [input,field] of invalid){const r=await post(input);assert.equal(r.status,400,JSON.stringify(input));assert.equal(r.body.field,field,JSON.stringify(input));assert.equal(typeof r.body.error,'string');}
@@ -83,7 +83,7 @@ test('a new item is validated field by field, trimmed and normalised, and a retr
  const created=await post({id,title:'  Lima opens a new route  ',body:'  Details\nhere  ',url:' HTTPS://Example.test/route ',pinned:true,status:'draft',createdBy:'spoof',publishedAt:'2020-01-01T00:00:00.000Z',version:9});
  assert.equal(created.status,201);const {item}=created.body;
  assert.deepEqual(Object.keys(item).sort(),ADMIN_KEYS);
- assert.deepEqual({...item,createdAt:0,updatedAt:0},{id:id.toLowerCase(),title:'Lima opens a new route',body:'Details\nhere',url:'https://example.test/route',pinned:true,status:'draft',publishedAt:null,createdAt:0,updatedAt:0,version:1});
+ assert.deepEqual({...item,createdAt:0,updatedAt:0},{id:id.toLowerCase(),title:'Lima opens a new route',body:'Details\nhere',publicByline:'',url:'https://example.test/route',pinned:true,status:'draft',publishedAt:null,createdAt:0,updatedAt:0,version:1});
  assert.equal(item.createdAt,item.updatedAt);
  const retry=await post({id,title:'  Lima opens a new route  ',body:'  Details\nhere  ',url:' HTTPS://Example.test/route ',pinned:true,status:'draft'});
  assert.equal(retry.status,200,'an identical retry (its first response was lost) gets the stored row');assert.deepEqual(retry.body.item,item);
@@ -291,10 +291,10 @@ test('Supabase news writes map a reused id to 409 and a vanished author to 404, 
  await assert.rejects(store.insert(record),error=>error.status===409);
  await assert.rejects(store.insert({...record,id:uuid(2),createdBy:'gone'}),error=>error.status===404&&error.message==='related record unavailable');
  assert.equal((await store.update(uuid(1),1,{title:'Edited',version:2})).title,'Edited');
- assert.deepEqual(pg.calls.at(-1).query,{id:`eq.${uuid(1)}`,version:'eq.1'});assert.equal(pg.calls.at(-1).headers.Prefer,'return=representation');
+ assert.deepEqual(pg.calls.at(-1).query,{id:`eq.${uuid(1)}`,version:'eq.1',select:NEWS_FIELDS.map(snake).join(',')});assert.equal(pg.calls.at(-1).headers.Prefer,'return=representation');
  assert.equal(await store.update(uuid(1),1,{title:'Stale',version:2}),null);
  assert.equal((await store.get(uuid(1))).title,'Edited');assert.equal(await store.get(uuid(3)),null);
- assert.equal(await store.remove(uuid(1)),1);assert.deepEqual(pg.calls.at(-1).query,{id:`eq.${uuid(1)}`});assert.equal(await store.remove(uuid(1)),0);
+ assert.equal(await store.remove(uuid(1)),1);assert.deepEqual(pg.calls.at(-1).query,{id:`eq.${uuid(1)}`,select:'id'});assert.equal(await store.remove(uuid(1)),0);
 });
 
 test('Supabase-backed news API retries creates idempotently, reports version conflicts and pages the feed in the PostgreSQL timestamp format',async()=>{
@@ -307,7 +307,10 @@ test('Supabase-backed news API retries creates idempotently, reports version con
   return res;
  };
  const create=async(title,extra={})=>{const res=await call('POST','/api/admin/news',{id:crypto.randomUUID(),title,status:'published',...extra});assert.equal(res.status,201);return res.body.item;};
- const a=await create('A'),b=await create('B',{pinned:true}),c=await create('C');await create('Draft',{status:'draft'});
+ const a=await create('A'),b=await create('B',{pinned:true,publicByline:'  Equipo   urbano '}),c=await create('C');
+ assert.equal(b.publicByline,'Equipo urbano');
+ assert.equal((await call('PATCH','/api/admin/news/'+b.id,{version:1,pinned:true})).body.item.publicByline,'Equipo urbano');
+ assert.equal((await call('GET','/api/news/'+b.id,undefined,null)).body.item.publicByline,'Equipo urbano');await create('Draft',{status:'draft'});
  const retry=await call('POST','/api/admin/news',{id:a.id,title:'A',status:'published'});assert.equal(retry.status,200);assert.deepEqual(retry.body.item,a);
  const changed=await call('POST','/api/admin/news',{id:a.id,title:'A again',status:'published'});
  assert.deepEqual([changed.status,changed.body.code,changed.body.item.title,changed.body.item.version],[409,'version_conflict','A',1],'different content under a stored id is a conflict');
@@ -332,7 +335,12 @@ test('the news migration keeps the table behind the server: RLS on, no browser g
  const sql=readFileSync(new URL(name,dir),'utf8');
  assert.match(sql,/^BEGIN;[\s\S]+COMMIT;\s*$/);
  assert.match(sql,/CREATE TABLE public\.nodal_news \(/);
- for(const column of NEWS_FIELDS.map(snake))assert.match(sql,new RegExp(`\\n ${column} `),column);
+ const addedColumns = ['20261123235000_publication_email_credits.sql','20261123235500_publication_covers.sql']
+   .map(file=>readFileSync(new URL(file,dir),'utf8').match(/ALTER TABLE public\.nodal_news[^;]*;/i)?.[0]).join('\n');
+ for(const column of NEWS_FIELDS.map(snake)){
+  const declared=new RegExp(`\\n ${column} |ADD COLUMN ${column} `);
+  assert.match(sql+'\n'+addedColumns,declared,column);
+ }
  assert.match(sql,/created_by uuid REFERENCES public\.profiles\(id\) ON DELETE SET NULL/);
  assert.match(sql,/CHECK\(status IN \('draft','published'\)\)/);assert.match(sql,/CHECK\(status='draft' OR published_at IS NOT NULL\)/);
  assert.match(sql,/CREATE INDEX nodal_news_public ON public\.nodal_news\(status,pinned DESC,published_at DESC,id DESC\);/);
