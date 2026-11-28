@@ -13,12 +13,12 @@
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
   <link rel="stylesheet" href="styles.css?v=37" />
-  <link rel="stylesheet" href="auth.css?v=20261013b" />
+  <link rel="stylesheet" href="auth.css?v=20261128" />
 
   <script defer src="i18n.js?v=20261116a"></script>
-  <script defer src="recovery-i18n.js?v=20261022a"></script>
+  <script defer src="recovery-i18n.js?v=20261128"></script>
   <script defer src="nav.js?v=20261116a"></script>
-  <script defer src="auth.js?v=20261116a"></script>
+  <script defer src="auth.js?v=20261128"></script>
   <script defer src="visit.js?v=20261114b"></script>
 </head>
 <body class="auth-page">
@@ -35,14 +35,10 @@
   </header>
 
   <main class="auth-shell">
-    <section class="auth-intro">
-      <h1 data-i18n="a.h1">Welcome to NODAL.</h1>
-      <p data-i18n="a.lead">Create your profile, join NODAL and start meeting people who care about more just, sustainable and human cities.</p>
-    </section>
-
+    <p class="auth-return" id="paymentNext" data-recovery-text="paymentNext" hidden>After signing in, you’ll return to the Founder Membership payment options.</p>
     <section class="auth-grid" aria-label="Sign-in forms">
       <form method="post" class="auth-card" id="loginForm" aria-labelledby="loginTitle" novalidate>
-        <h2 id="loginTitle" data-i18n="a.signin">Sign in</h2>
+        <h1 id="loginTitle" data-i18n="a.signin">Sign in</h1>
         <label><span data-i18n="a.email">Email</span>
           <input type="email" id="loginEmail" autocomplete="email" autocapitalize="none" spellcheck="false" aria-describedby="loginError" required />
         </label>
@@ -55,8 +51,8 @@
         <a class="auth-recovery" id="signupLink" href="#signupForm" data-recovery-text="newHere">New to NODAL? Create an account</a>
       </form>
 
-      <form method="post" class="auth-card" id="signupForm" aria-labelledby="signupTitle" novalidate>
-        <h2 id="signupTitle" data-i18n="a.create">Create account</h2>
+      <form method="post" class="auth-card" id="signupForm" aria-labelledby="signupTitle" novalidate hidden>
+        <h1 id="signupTitle" data-i18n="a.create">Create account</h1>
         <label><span data-i18n="a.name">Full name</span>
           <input type="text" id="signupName" autocomplete="name" maxlength="80" aria-describedby="signupError" required />
         </label>
@@ -69,6 +65,7 @@
         <p class="auth-hint" id="signupHint" data-i18n="a.hint">Use 8–72 characters (fewer with accents or emoji). Your password is protected before storage.</p>
         <p class="auth-error" id="signupError" role="status" aria-live="polite" hidden></p>
         <button type="submit" disabled class="btn btn-primary" data-i18n="a.createBtn">Create account</button>
+        <a class="auth-recovery" href="#loginForm" data-recovery-text="alreadyMember">Already have an account? Sign in</a>
       </form>
     </section>
   </main>

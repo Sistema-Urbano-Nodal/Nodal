@@ -12,16 +12,16 @@
   <script src="locale.js?v=20261009a"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="fonts.css?v=20260911b" />
-  <link rel="stylesheet" href="styles.css?v=37" />
+  <link rel="stylesheet" href="styles.css?v=20261128a" />
   <link rel="stylesheet" href="courses.css?v=20261116a" />
 
   <link rel="stylesheet" href="workspace-notifications.css?v=20261119d">
-  <script defer src="i18n-dashboard.js?v=20261123f"></script>
+  <script defer src="i18n-dashboard.js?v=20261128a"></script>
   <script defer src="i18n.js?v=20261116a"></script>
   <script defer src="pilot-i18n.js?v=20261123b"></script>
   <script defer src="pilot.js?v=20261123b"></script>
   <script defer src="nav.js?v=20261116a"></script>
-  <script defer src="payments.js?v=20261122a"></script>
+  <script defer src="payments.js?v=20261128a"></script>
   <script defer src="workspace-notifications.js?v=20261124a"></script>
   <script defer src="overview-return.js?v=20261123h"></script>
   <script defer src="visit.js?v=20261114b"></script>
@@ -50,6 +50,7 @@
         <p class="eyebrow" data-i18n="y.fund.eyebrow">Annual membership 2027</p>
         <h1 class="pay-title"><span data-i18n="y.fund.titleA">Founder</span> <em data-i18n="y.fund.titleB">Membership</em></h1>
         <p class="pay-sub" data-i18n="y.fund.intro">Be part of the community building a new way to connect, collaborate and transform our cities through Collaborative Urbanism.</p>
+        <p class="pay-return" id="payReturned" tabindex="-1" hidden></p>
       </div>
     </section>
 
@@ -71,6 +72,7 @@
           </fieldset>
           <p class="pay-note" data-i18n="y.fund.sameBenefits">Both options include the same benefits. All prices include IGV, Peru’s sales tax.</p>
           <p class="pay-note" data-i18n="y.fund.notMonthly">The two-payment option is one annual membership. It is not a monthly subscription or a two-month membership.</p>
+          <a class="link-arrow pay-jump" href="#payCheckoutTitle" id="payReview" hidden data-i18n="y.fund.review">Review the payment conditions</a>
         </section>
 
         <section class="pay-block" id="beneficios">
@@ -126,7 +128,7 @@
 
         <aside class="pay-summary pay-checkout" aria-labelledby="payCheckoutTitle">
           <p class="pay-summary-kicker" data-i18n="y.fund.checkoutKicker">Paying on Mercado Pago</p>
-          <h2 id="payCheckoutTitle" data-i18n="y.fund.checkoutTitle">Your sign-up</h2>
+          <h2 id="payCheckoutTitle" tabindex="-1" data-i18n="y.fund.checkoutTitle">Your sign-up</h2>
           <p class="pay-closed" id="payClosed" role="status" tabindex="-1"></p>
           <button type="button" class="btn btn-ghost-dark pay-retry" id="payRetry" hidden data-i18n="y.fund.retry">Try again</button>
           <div class="pay-purchase" id="payPurchase" hidden>

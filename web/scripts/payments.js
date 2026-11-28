@@ -24,7 +24,7 @@
   };
 
   const IDS = {
-    form: 'fundForm', choose: 'modalidad', closed: 'payClosed', purchase: 'payPurchase',
+    form: 'fundForm', choose: 'modalidad', closed: 'payClosed', purchase: 'payPurchase', review: 'payReview', returned: 'payReturned',
     choiceOnce: 'payChoiceOnce', choiceInstallments: 'payChoiceInstallments', radioOnce: 'payOptionOnce', radioInstallments: 'payOptionInstallments',
     onceAmount: 'payOnceAmount', installmentsTotal: 'payInstallmentsTotal', installmentsText: 'payInstallmentsText',
     terms: 'payAcceptTerms', payment: 'payAcceptPayment', renewal: 'payAcceptRenewal', paymentRow: 'payPaymentRow', paymentText: 'payPaymentText', paymentHint: 'payPaymentHint',
@@ -41,9 +41,14 @@
 
   // The messages that say something went wrong; the others say what is happening.
   const ERRORS = new Set(['y.fund.error', 'y.fund.tooMany', 'y.fund.unavailable']);
+  // Returning through a provider link creates a new history entry. The origin is enough for
+  // the reminder even then; it tells us nothing about whether money changed hands.
+  const referrer = httpsUrl(document.referrer);
+  const fromProvider = referrer && /(?:^|\.)(?:mercadopago|mercadolibre)\.com(?:\.pe)?$/.test(new URL(referrer).hostname);
   // leaving: the fallback armed once the page should be on its way to Mercado Pago (see the submit handler).
-  let openedCheckout = Boolean(window.history?.state?.nodalFounderCheckout);
-  let offer = nothing('loading'), notice = openedCheckout ? 'y.fund.returned' : '', busy = false, leaving = null;
+  let openedCheckout = Boolean(window.history?.state?.nodalFounderCheckout || fromProvider);
+  let offer = nothing('loading'), notice = '', busy = false, leaving = null;
+  let loadNumber = 0;
 
   // What the page may sell from an answer: only this page's terms version, with an offered option and the contact email.
   function read(data) {
@@ -89,6 +94,7 @@
     els.installmentsText.textContent = offers.installments ? t('y.fund.twiceText', { each: offers.installments.each }) : '';
     // The payment authorization is the chosen option's own, with its amounts.
     const option = chosen();
+    els.review.hidden = !option;
     if (!option) els.payment.checked = false;
     els.paymentRow.hidden = !option;
     els.paymentHint.hidden = Boolean(option);
@@ -106,6 +112,8 @@
     if (contact?.complaints) els.complaints.href = contact.complaints;
     els.status.textContent = notice ? t(notice) : '';
     els.status.dataset.tone = ERRORS.has(notice) ? 'error' : '';
+    els.returned.hidden = !openedCheckout || busy;
+    els.returned.textContent = openedCheckout ? t('y.fund.returned') : '';
     gate();
   }
 
@@ -120,9 +128,12 @@
     if (leaving) { clearTimeout(leaving.timer); document.removeEventListener('visibilitychange', leaving.back); leaving = null; }
     untick();
     busy = false;
-    notice = openedCheckout ? 'y.fund.returned' : '';
+    notice = '';
     lock(false);
+    offer = nothing('loading');
     render();
+    if (openedCheckout) els.returned.focus();
+    return load();
   }
 
   // After an answer that changes the box under the member, focus moves to the message that says what happened: the
@@ -135,6 +146,7 @@
   const limit = () => (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? { signal: AbortSignal.timeout(45000) } : {});
 
   async function load() {
+    const currentLoad = ++loadNumber;
     let next;
     try {
       const res = await fetch('/api/billing/config', { headers: { Accept: 'application/json' }, ...limit() });
@@ -143,6 +155,7 @@
     } catch {
       next = nothing('failed');   // offline, no answer within the limit, or an answer that is not JSON
     }
+    if (currentLoad !== loadNumber) return;
     offer = next;
     render();
   }
@@ -188,8 +201,11 @@
     const url = status === 201 ? httpsUrl(data?.url) : null;
     if (url) {
       openedCheckout = true;
-      // Back can reload this history entry or restore it from cache. The marker records only that checkout opened.
-      try { window.history.replaceState({ ...window.history.state, nodalFounderCheckout: true }, ''); } catch { /* private browser history may be unavailable */ }
+      // Back may restore the previous scroll position after scripts run. Keep focus and the viewport on the return reminder.
+      try {
+        window.history.replaceState({ ...window.history.state, nodalFounderCheckout: true }, '', '#payReturned');
+        window.history.scrollRestoration = 'manual';
+      } catch { /* private browser history may be unavailable */ }
       location.assign(url);
       // A page that stays (the Mercado Pago app took the link, or the member stopped the load) starts afresh once it is
       // shown again, or after a while; a page that leaves takes this with it.
@@ -223,7 +239,7 @@
 
   // A page brought back from the back/forward cache (Back from Mercado Pago) keeps its script state: its ticks, and the
   // button off while the browser was leaving. The member starts the acceptance again.
-  window.addEventListener('pageshow', (event) => { if (event.persisted) reset(); });
+  window.addEventListener('pageshow', (event) => { if (event.persisted) return reset(); });
 
   async function showEmail() {
     let email = '';
@@ -240,6 +256,7 @@
   // A browser that restored the form's saved state did so while parsing it, before this deferred script.
   untick();
   render();
+  if (openedCheckout) els.returned.focus();
   load();
   showEmail();
   I18N?.onChange(render);

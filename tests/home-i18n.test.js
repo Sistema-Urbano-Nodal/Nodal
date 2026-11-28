@@ -351,7 +351,7 @@ test('landing leader titles, lab chips and accessible names switch language inst
   const html=readFileSync(new URL('../web/pages/index.html',import.meta.url),'utf8');
   const leaders=html.slice(html.indexOf('id="leaderRow"'),html.indexOf('</section>',html.indexOf('id="leaderRow"')));
   assert.equal((leaders.match(/<h3>/g)||[]).length,0,'every leader title carries a key');
-  assert.match(leaders,/<a class="leader-card leader-more" href="login\.html\?next=\/dashboard\.html">[\s\S]*?data-i18n="lead\.more"[\s\S]*?<\/a>/,'the green Join card is a real link');
+  assert.match(leaders,/<a class="leader-card leader-more" href="login\.html\?next=\/dashboard\.html#signupForm">[\s\S]*?data-i18n="lead\.more"[\s\S]*?<\/a>/,'the green Join card is a real link');
   const logos=html.match(/<div class="logos">([\s\S]*?)<\/div>/)[1];
   assert.equal((logos.match(/<span data-i18n="part\.l\d">/g)||[]).length,6);
   assert.match(html,/<span class="t-num" data-i18n="part\.open">Open<\/span>/);

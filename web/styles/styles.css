@@ -836,6 +836,9 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
 .pay-title { font-size: clamp(40px, 6vw, 80px); font-weight: 800; line-height: 1.02; letter-spacing: -.025em; color: var(--ink); }
 .pay-title em { font-style: italic; font-weight: 600; color: var(--green-bright); }
 .pay-sub { margin-top: 22px; max-width: 620px; font-size: clamp(16px, 1.5vw, 19px); line-height: 1.6; color: var(--ink-2); }
+.pay-return { margin-top: 22px; max-width: 66ch; padding: 14px 18px; border-inline-start: 4px solid var(--green-deep); background: var(--paper); color: var(--ink); font-weight: 600; }
+.pay-return, #payCheckoutTitle { scroll-margin-top: 104px; }
+.pay-block .pay-jump { display: none; }
 
 /* The Founder Membership page: the membership on the left, the purchase box beside the options. The markup keeps the terms'
    order (options, benefits, conditions, seller, then the purchase), which is what a phone shows. */
@@ -1134,6 +1137,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .btn:focus-visible
   .pf-actions { margin-left: 0; align-items: flex-start; }
   .pf-match { text-align: left; }
   .pay-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "choose" "benefits" "terms" "free" "seller" "checkout"; }
+  .pay-block .pay-jump { display: inline-flex; }
   /* with nothing to buy, the box only says when sign-ups open or that the offer closed: say it first */
   .pay-grid:has(> #modalidad[hidden]) { grid-template-areas: "checkout" "benefits" "terms" "free" "seller"; }
   .pay-summary { padding: 26px 22px; }

@@ -40,17 +40,17 @@ function elements(){
 // config: the /api/billing/config answer (or a function of the request count, or a promise of it); answers: what each acceptance
 // POST gets, in turn; restored: the ids of the inputs a browser ticks again from its saved form state before the page script runs;
 // abortSignal: the page's AbortSignal (by default it has none, as Safari before 16 has no AbortSignal.timeout).
-async function page({config=OPEN,me={user:{email:'ana@example.test'}},answers=[CREATED],i18n:dictionary,restored=[],abortSignal,historyState=null}={}){
+async function page({config=OPEN,me={user:{email:'ana@example.test'}},answers=[CREATED],i18n:dictionary,restored=[],abortSignal,historyState=null,referrer=''}={}){
  const nodes=elements(),requests=[],assigned=[],listeners=[],windowListeners={},documentListeners={},timers=[],focused=[];let configs=0;
  for(const id of restored)nodes[id].checked=true;
  for(const node of Object.values(nodes))node.focus=()=>focused.push(node.id);
  const fake={lang:'en',t:(key,vars)=>`${fake.lang}:${key}`+(vars?' '+Object.entries(vars).map(([name,value])=>`${name}=${value}`).join(' '):''),onChange:listener=>listeners.push(listener)};
  const i18n=dictionary??fake;
  const queue=[...answers];
- const history={state:historyState,replaceState(value){this.state=value;}};
+  const history={state:historyState,replaceState(value,title,url){this.state=value;this.url=url;}};
  const context={window:{history,nodalI18n:i18n,addEventListener:(type,listener)=>(windowListeners[type]??=[]).push(listener)},URL,JSON,...(abortSignal?{AbortSignal:abortSignal}:{}),
   location:{pathname:'/payments.html',search:'',assign:url=>assigned.push(url)},
-  document:{getElementById:id=>nodes[id]??null,createElement:tag=>new Node(tag),visibilityState:'visible',
+  document:{referrer,getElementById:id=>nodes[id]??null,createElement:tag=>new Node(tag),visibilityState:'visible',
    addEventListener:(type,listener)=>(documentListeners[type]??=[]).push(listener),removeEventListener:(type,listener)=>{documentListeners[type]=(documentListeners[type]||[]).filter(other=>other!==listener);}},
   setTimeout:(fn,ms)=>timers.push({fn,ms,cleared:false}),clearTimeout:id=>{if(timers[id-1])timers[id-1].cleared=true;},
   fetch:async(path,options={})=>{
@@ -265,7 +265,7 @@ test('coming back from Mercado Pago never brings the acceptances back ticked',as
  assert.deepEqual(p.assigned,[MP]);assert.equal(n.payContinue.disabled,true);
  await p.pageshow(true);
  assert.deepEqual([...Object.values(p.radios),...p.boxes].map(input=>input.checked),[false,false,false,false,false],'every acceptance is ticked again on this visit');
- assert.equal(n.payStatus.textContent,'en:y.fund.returned');assert.equal(n.payContinue.disabled,true);assert.equal(n.payHint.hidden,false);
+ assert.equal(n.payReturned.textContent,'en:y.fund.returned');assert.equal(n.payContinue.disabled,true);assert.equal(n.payHint.hidden,false);
  p.choose('once');p.tickAll();assert.equal(n.payContinue.disabled,false,'the button is no longer stuck off');
  await p.submit();await flush();
  assert.equal(p.posts().length,2);assert.equal(p.posts()[1].body.option,'once');assert.deepEqual(p.assigned,[MP,MP]);
@@ -371,13 +371,13 @@ test('a page that stays after the link (the Mercado Pago app took it, or the loa
  p.choose('installments');p.tickAll();await p.submit();await flush();
  assert.deepEqual(p.assigned,[MP]);assert.equal(n.payContinue.disabled,true);assert.equal(n.payStatus.textContent,'en:y.fund.sending');
  p.visibility('hidden');assert.equal(n.payContinue.disabled,true,'leaving: nothing changes');
- p.visibility('visible');
- assert.deepEqual([...Object.values(p.radios),...p.boxes].map(input=>input.checked),[false,false,false,false,false]);assert.equal(n.payStatus.textContent,'en:y.fund.returned');
+ p.visibility('visible');await flush();
+ assert.deepEqual([...Object.values(p.radios),...p.boxes].map(input=>input.checked),[false,false,false,false,false]);assert.equal(n.payReturned.textContent,'en:y.fund.returned');
  p.choose('once');p.tickAll();assert.equal(n.payContinue.disabled,false);
  p.wait();assert.deepEqual(p.boxes.map(box=>box.checked),[true,true,true],'the fallback was disarmed once the page was shown again');
  // Without a show, the fallback starts afresh after a while.
  const q=await page();q.choose('once');q.tickAll();await q.submit();await flush();assert.equal(q.nodes.payContinue.disabled,true);
- assert.ok(q.timers.some(timer=>!timer.cleared&&timer.ms>=5000));q.wait();
+ assert.ok(q.timers.some(timer=>!timer.cleared&&timer.ms>=5000));q.wait();await flush();
  assert.deepEqual(q.boxes.map(box=>box.checked),[false,false,false]);q.choose('once');q.tickAll();assert.equal(q.nodes.payContinue.disabled,false);
  // Back from the back/forward cache disarms it too, so it never unticks what the member is ticking.
  const r=await page();r.choose('once');r.tickAll();await r.submit();await flush();await r.pageshow(true);
@@ -466,11 +466,54 @@ test('the checkout history entry gives payment guidance after returning or reloa
  const first=await page({historyState:{existing:'kept'}});
  assert.equal(first.nodes.payStatus.textContent,'');
  first.choose('once');first.tickAll();await first.submit();await first.pageshow(true);
- assert.equal(first.nodes.payStatus.textContent,'en:y.fund.returned');
+ assert.equal(first.nodes.payReturned.textContent,'en:y.fund.returned');
  assert.equal(first.history.state.existing,'kept');
+ assert.equal(first.history.url,'#payReturned','native Back returns to the reminder even after the mobile checkout jump');
+ assert.equal(first.history.scrollRestoration,'manual','the browser keeps the reminder in view after restoring this entry');
  const restored=await page({historyState:first.history.state});
- assert.equal(restored.nodes.payStatus.textContent,'en:y.fund.returned');
+ assert.equal(restored.nodes.payReturned.textContent,'en:y.fund.returned');
  assert.equal(restored.nodes.payContinue.disabled,true);
  assert.equal(restored.posts().length,0);
- restored.lang('es');assert.equal(restored.nodes.payStatus.textContent,'es:y.fund.returned');
+ restored.lang('es');assert.equal(restored.nodes.payReturned.textContent,'es:y.fund.returned');
+});
+
+test('after a provider handoff, recheck the offer and show return guidance even when purchasing is unavailable', async () => {
+  for (const nextOffer of [CLOSED('ended'), http(503), CLOSED('soon')]) {
+    const p = await page({config: count => count === 1 ? OPEN : nextOffer});
+    assert.equal(p.nodes.payReturned.hidden, true);
+    p.choose('once');
+    p.tickAll();
+    await p.submit();
+    await p.pageshow(true);
+    assert.equal(p.configs(), 2);
+    assert.equal(p.nodes.payPurchase.hidden, true);
+    assert.equal(p.nodes.payReturned.hidden, false);
+    assert.equal(p.nodes.payReturned.textContent, 'en:y.fund.returned');
+    assert.equal(p.focused(), 'payReturned');
+    assert.equal(p.posts().length, 1);
+  }
+  assert.ok(html.indexOf('id="payReturned"') < html.indexOf('<form'));
+});
+
+test('the shortcut from either payment option reaches the authorization heading without submitting the form', async () => {
+  const p = await page();
+  assert.equal(p.nodes.payReview.hidden, true);
+  for (const option of ['once', 'installments']) {
+    p.choose(option);
+    assert.equal(p.nodes.payReview.hidden, false);
+    assert.equal(p.nodes.payReview.href, '#payCheckoutTitle');
+    assert.equal(p.nodes.payContinue.disabled, true);
+    assert.equal(p.posts().length, 0);
+  }
+  assert.match(html, /<h2 id="payCheckoutTitle" tabindex="-1"/);
+});
+
+test('returning via a link from Mercado Pago also shows guidance on a fresh history entry', async () => {
+  const returned = await page({referrer: 'https://www.mercadopago.com.pe/', config: CLOSED('ended')});
+  assert.equal(returned.nodes.payReturned.hidden, false);
+  assert.equal(returned.nodes.payReturned.textContent, 'en:y.fund.returned');
+  assert.equal(returned.posts().length, 0);
+  assert.equal(returned.nodes.payPurchase.hidden, true);
+  const unrelated = await page({referrer: 'https://example.test/'});
+  assert.equal(unrelated.nodes.payReturned.hidden, true);
 });

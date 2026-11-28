@@ -5,10 +5,10 @@ import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../web/scripts/auth.js',import.meta.url),'utf8');
 function harness(reply=async()=>({ok:true,status:200,data:{user:{id:'u1'}}}),search='',storage=null,hash='',now=null){
  const nodes={},listeners=[],requests=[];let assigned='',timeout;
- for(const id of ['loginForm','signupForm','loginError','signupError','loginEmail','loginPassword','signupName','signupEmail','signupPassword','signupLink'])nodes[id]={id,value:'',textContent:'',hidden:true,listeners:{},dataset:{},classes:new Set(),classList:{toggle(k,on){on?nodes[id].classes.add(k):nodes[id].classes.delete(k);}},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];},addEventListener(k,f){this.listeners[k]=f;},focus(){this.focused=true;},select(){this.selected=true;}};
+ for(const id of ['loginForm','signupForm','loginError','signupError','loginEmail','loginPassword','signupName','signupEmail','signupPassword','signupLink','paymentNext'])nodes[id]={id,value:'',textContent:'',hidden:true,listeners:{},dataset:{},classes:new Set(),classList:{toggle(k,on){on?nodes[id].classes.add(k):nodes[id].classes.delete(k);}},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];},addEventListener(k,f){this.listeners[k]=f;},focus(){this.focused=true;},select(){this.selected=true;}};
  for(const id of ['loginForm','signupForm']){nodes[id].button={disabled:true,textContent:'',dataset:{},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];},focus(){this.focused=true;}};nodes[id].querySelector=()=>nodes[id].button;}
  nodes.authGrid={setAttribute(k,v){this[k]=v;}};
- const context={document:{getElementById:id=>nodes[id],querySelector:selector=>selector==='.auth-grid'?nodes.authGrid:null,body:{}},URL,URLSearchParams,Error,window:{nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}},location:{origin:'https://nodal.test',pathname:'/login.html',search,hash,assign:path=>assigned=path},history:{calls:[],replaceState(state,title,url){this.calls.push(url);}},...(storage?{localStorage:storage}:{}),...(now?{Date:{now}}:{}),AbortSignal:{timeout:ms=>{timeout=ms;return{timeout:ms};}},fetch:async(path,options)=>{requests.push({path,options,body:JSON.parse(options.body)});const result=await reply(path,options);return{ok:result.ok,status:result.status,json:async()=>{if(result.jsonError)throw result.jsonError;return result.data;}};}};
+ const context={document:{getElementById:id=>nodes[id],querySelector:selector=>selector==='.auth-grid'?nodes.authGrid:null,body:{}},URL,URLSearchParams,Error,window:{addEventListener(type,fn){this[type]=fn;},nodalI18n:{lang:'en',onChange:f=>listeners.push(f)}},location:{origin:'https://nodal.test',pathname:'/login.html',search,hash,assign:path=>assigned=path},history:{calls:[],replaceState(state,title,url){this.calls.push(url);}},...(storage?{localStorage:storage}:{}),...(now?{Date:{now}}:{}),AbortSignal:{timeout:ms=>{timeout=ms;return{timeout:ms};}},fetch:async(path,options)=>{requests.push({path,options,body:JSON.parse(options.body)});const result=await reply(path,options);return{ok:result.ok,status:result.status,json:async()=>{if(result.jsonError)throw result.jsonError;return result.data;}};}};
  vm.createContext(context);vm.runInContext(source,context);
  const submit=id=>nodes[id].listeners.submit({preventDefault(){}});
  const valid=()=>{nodes.loginEmail.value='member@example.test';nodes.loginPassword.value='password123';nodes.signupName.value='Test Member';nodes.signupEmail.value='new@example.test';nodes.signupPassword.value='newpassword123';};
@@ -184,10 +184,55 @@ test('signing in before confirming explains how to get a new confirmation link',
  const h=harness(async()=>({ok:false,status:403,data:{error:'Confirm your email before signing in.'}}));h.valid();h.lang('es');await h.submit('loginForm');
  assert.match(h.nodes.loginError.textContent,/Confirma tu correo/);assert.match(h.nodes.loginError.textContent,/Crear cuenta con el mismo correo y contraseña/);assert.equal(h.nodes.loginError.classes.has('is-ok'),false);
 });
-test('the sign-in card offers new people the Create account form and brings its first field up',()=>{
+test('registration and sign-in each show one form and links switch without losing checkout', async () => {
  const html=readFileSync(new URL('../web/pages/login.html',import.meta.url),'utf8');
- const login=html.slice(html.indexOf('id="loginForm"'),html.indexOf('</form>'));assert.match(login,/<a class="auth-recovery" id="signupLink" href="#signupForm" data-recovery-text="newHere">/);
- const h=harness();let prevented=false;h.nodes.signupLink.listeners.click({preventDefault(){prevented=true;}});assert.equal(prevented,true);assert.equal(h.nodes.signupName.focused,true);
+ assert.match(html,/id="signupLink" href="#signupForm"/);
+ assert.match(html,/href="#loginForm" data-recovery-text="alreadyMember"/);
+ const h=harness(undefined,'?next=%2Fpayments.html');
+ assert.equal(h.nodes.paymentNext.hidden,false);
+ assert.equal(h.nodes.loginForm.hidden,false);
+ assert.equal(h.nodes.signupForm.hidden,true);
+ h.nodes.loginEmail.value='member@example.test';
+ h.context.location.hash='#signupForm';
+ h.context.window.hashchange();
+ assert.equal(h.nodes.loginForm.hidden,true);
+ assert.equal(h.nodes.signupForm.hidden,false);
+ assert.equal(h.nodes.signupName.focused,true);
+ assert.equal(h.nodes.signupEmail.value,'member@example.test');
+ h.lang('es');
+ assert.equal(h.context.document.title,'Crear cuenta · NODAL');
+ h.context.location.hash='#loginForm';
+ h.context.window.hashchange();
+ assert.equal(h.nodes.loginForm.hidden,false);
+ assert.equal(h.nodes.signupForm.hidden,true);
+ assert.equal(h.nodes.loginEmail.focused,true);
+ h.valid();
+ await h.submit('loginForm');
+ assert.equal(h.assigned(), '/payments.html');
+});
+
+test('free registration opens directly and a confirmation email returns to sign-in for checkout', async () => {
+ const storage=memoryStorage();
+ const free=harness(undefined,'?next=/dashboard.html',null,'#signupForm');
+ assert.equal(free.nodes.signupForm.hidden,false);
+ assert.equal(free.nodes.paymentNext.hidden,true);
+ free.valid();
+ await free.submit('signupForm');
+ assert.equal(free.assigned(),'/dashboard.html');
+ const signup=harness(async()=>({ok:true,status:202,data:{requiresEmailConfirmation:true}}),
+   '?next=%2Fpayments.html',storage,'#signupForm');
+ signup.valid();
+ await signup.submit('signupForm');
+ assert.equal(signup.nodes.signupError.hidden,false);
+ const confirmed=harness(undefined,'?code=example',storage);
+ assert.equal(confirmed.nodes.loginForm.hidden,false);
+ assert.equal(confirmed.nodes.signupForm.hidden,true);
+ assert.equal(confirmed.nodes.paymentNext.hidden,false);
+ assert.equal(confirmed.nodes.loginEmail.focused,true);
+ assert.deepEqual(harness(undefined,'?code=example',storage,'#signupForm').context.history.calls,['/login.html']);
+ confirmed.valid();
+ await confirmed.submit('loginForm');
+ assert.equal(confirmed.assigned(),'/payments.html');
 });
 
 /* Activating "Entrar" disables it while the request runs, and a disabled button loses focus to the page. After a

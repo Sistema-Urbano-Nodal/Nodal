@@ -193,7 +193,7 @@ test('the membership section has three cards: the two ways in unchanged, then on
   const card = (mark) => plans.slice(plans.indexOf(mark), plans.indexOf('</article>', plans.indexOf(mark)) + '</article>'.length);
   const free = card('<article class="plan">');
   assert.deepEqual([...free.matchAll(/data-i18n="([^"]+)"/g)].map((match) => match[1]), ['mem.freeName', 'mem.freePrice', 'mem.f1', 'mem.f2', 'mem.f3', 'mem.f4', 'mem.f5a', 'mem.f5b', 'mem.freeCta']);
-  assert.match(free, /<a class="btn btn-ghost-dark" href="login\.html\?next=\/dashboard\.html" data-i18n="mem\.freeCta">Join free<\/a>\s*<\/article>$/);
+  assert.match(free, /<a class="btn btn-ghost-dark" href="login\.html\?next=\/dashboard\.html#signupForm" data-i18n="mem\.freeCta">Join free<\/a>\s*<\/article>$/);
   assert.match(card('<article class="plan plan-pro">'), /<a class="btn btn-primary" href="fundadores\.html" data-billing-cta data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>\s*<\/article>$/);
   const org = card('<article class="plan plan-org">');
   assert.match(org, /^<article class="plan plan-org">\s*<header><h3 data-i18n="mem\.org\.name">NODAL for organizations<\/h3><p class="price" data-i18n="mem\.org\.tagline">Activate a territorial and\/or thematic Node<\/p><\/header>\s*<p class="plan-text" data-i18n="mem\.org\.p">[^<]+<\/p>\s*<a class="btn btn-ghost-dark" id="nodeRequestOpen" href="#nodos" data-i18n="mem\.org\.cta">Contact us<\/a>\s*<\/article>$/);
@@ -206,4 +206,18 @@ test('the membership section has three cards: the two ways in unchanged, then on
   assert.match(css, /\.membership \.plans \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
   assert.match(css, /@media \(max-width: 980px\) \{[^@]*\.membership \.plans \{ grid-template-columns: 1fr 1fr; \}[^@]*\.plan-org \{ grid-column: 1 \/ -1; \}/, 'two plus the third across both columns');
   assert.match(css, /@media \(max-width: 820px\) \{\s*\.membership \.plans \{ grid-template-columns: 1fr; \}/);
+});
+
+
+test('the hero leads straight to free registration or the three membership choices', () => {
+  const html = read('web', 'pages', 'index.html');
+  const hero = html.slice(html.indexOf('class="hero-cta"'), html.indexOf('</section>', html.indexOf('class="hero-cta"')));
+  assert.match(hero, /href="login\.html\?next=\/dashboard\.html#signupForm" data-i18n="mem\.freeCta"/);
+  assert.match(hero, /href="#membership" data-i18n="res\.link"/);
+  assert.ok(html.indexOf('id="membership"') < html.indexOf('id="about"'));
+  for (const lang of ['es', 'pt']) {
+    const i18n = loadI18n(lang);
+    assert.match(i18n.t('mem.freeCta'), /gr[aá]tis/);
+    assert.match(i18n.t('res.link'), /membre/);
+  }
 });

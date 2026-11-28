@@ -9,7 +9,8 @@
   const arrival = (() => { const f = new URLSearchParams((location.hash || '').slice(1)); return [linkQuery, f].some(p => p.has('error') || p.has('error_code')) ? 'linkExpired' : linkQuery.has('code') || f.has('access_token') && f.get('type') === 'signup' ? 'confirmed' : null; })();
   if (linkKeys.length || linkFragment) {
     linkKeys.forEach(key => linkQuery.delete(key));const rest = String(linkQuery);
-    history.replaceState(null, '', location.pathname + (linkKeys.length ? (rest ? '?' + rest : '') : location.search) + (linkFragment ? '' : location.hash));
+    const hash = linkFragment || (arrival && location.hash === '#signupForm') ? '' : location.hash;
+    history.replaceState(null, '', location.pathname + (linkKeys.length ? (rest ? '?' + rest : '') : location.search) + hash);
   }
 
   // Bytes of UTF-8 the auth provider counts (it accepts at most 72): accents take two, most emoji four.
@@ -89,6 +90,7 @@
   const nameRegion = () => region.node?.setAttribute('aria-label',t(region.label));
   const render = () => {
     nameRegion();
+    document.title = t($('signupForm').hidden ? 'signIn' : 'create') + ' · NODAL';
     feedback.forEach((key,node)=>{node.textContent=t(key);});
     forms.forEach(state=>{state.submit.textContent=t(state.busy?state.pendingLabel:state.label);});
   };
@@ -178,8 +180,20 @@
     });
     state.submit.disabled=false;
   }
-  setup(false);setup(true);window.nodalI18n?.onChange(render);nameRegion();
+  setup(false);setup(true);window.nodalI18n?.onChange(render);
+  function selectForm(signup, focus) {
+    $('loginForm').hidden = signup;
+    $('signupForm').hidden = !signup;
+    render();
+    if (focus) {
+      const email = $(signup ? 'signupEmail' : 'loginEmail');
+      if (!email.value) email.value = $(signup ? 'loginEmail' : 'signupEmail').value.trim();
+      $(signup ? 'signupName' : 'loginEmail').focus();
+    }
+  }
+  $('paymentNext').hidden = new URL(safeNext, location.origin).pathname !== '/payments.html';
+  selectForm(!arrival && location.hash === '#signupForm', false);
+  // Native fragment links keep the destination and support Back and Forward.
+  window.addEventListener('hashchange', () => selectForm(location.hash === '#signupForm', true));
   if(arrival&&$('loginError')){show($('loginError'),arrival);$('loginEmail')?.focus();}
-  // On a phone the Create account form sits below the sign-in card; the link brings its first field up with the keyboard.
-  $('signupLink')?.addEventListener('click',event=>{event.preventDefault();$('signupName')?.focus();});
 })();
