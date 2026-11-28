@@ -158,7 +158,12 @@
       const sent=state.sent;if(signup&&sent&&sent.email===email.value.trim().toLowerCase()&&Date.now()-sent.at<60000){tell(state,'confirmation');return;}
       setBusy(state,true);let redirecting=false,field=null;
       try{
-        const data=await post('/api/auth/'+(signup?'signup':'login'),{email:email.value.trim(),password:password.value,...(signup?{fullName:name.value.trim()}:{})},signup);
+        const body = {email:email.value.trim(), password:password.value};
+        if (signup) {
+          body.fullName = name.value.trim();
+          body.language = window.nodalI18n?.lang || 'en';
+        }
+        const data=await post('/api/auth/'+(signup?'signup':'login'),body,signup);
         if(signup&&data.requiresEmailConfirmation){
           state.sent={email:email.value.trim().toLowerCase(),at:Date.now()};const le=$('loginEmail');if(le&&!le.value)le.value=email.value.trim();
           tell(state,'confirmation');return;

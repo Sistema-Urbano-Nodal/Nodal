@@ -37,6 +37,20 @@ test('signup validates name, email and server password limits before requests',a
 test('login permits existing short passwords and preserves password bytes and safe return query',async()=>{
  const h=harness(undefined,'?next=%2Fcourse.html%3Fid%3Dc1%26module%3Dm1');h.valid();h.nodes.loginEmail.value=' member@example.test ';h.nodes.loginPassword.value=' a ';await h.submit('loginForm');assert.equal(h.requests[0].body.email,'member@example.test');assert.equal(h.requests[0].body.password,' a ');assert.equal(h.assigned(),'/course.html?id=c1&module=m1');
 });
+test('the signup request carries the language visible at submit time', async () => {
+  for (const language of ['en', 'es', 'pt']) {
+    const h = harness(undefined, '', null, '#signupForm');
+    h.valid();
+    h.lang(language);
+    await h.submit('signupForm');
+    assert.equal(h.requests[0].path, '/api/auth/signup');
+    assert.equal(h.requests[0].body.language, language);
+  }
+  const h = harness();
+  h.valid();
+  await h.submit('loginForm');
+  assert.deepEqual(h.requests[0].body, {email:'member@example.test', password:'password123'});
+});
 test('API errors are localized and visible messages update on a language change without another request',async()=>{
  const h=harness(async()=>({ok:false,status:401,data:{error:'invalid email or password'}}));h.valid();h.lang('pt');await h.submit('loginForm');assert.match(h.nodes.loginError.textContent,/E-mail ou senha/);h.lang('es');assert.match(h.nodes.loginError.textContent,/Correo o contraseña/);assert.equal(h.requests.length,1);assert.equal(h.nodes.loginForm.button.disabled,false);
 });

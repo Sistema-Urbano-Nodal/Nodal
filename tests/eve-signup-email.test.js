@@ -11,22 +11,45 @@ const env = { NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.co', NEXT_PUBL
 const reply = (body, status) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 function goTrue(answers) {
   const calls = [];
+  const signupMetadata = [];
   const fetchImpl = async (raw, options) => {
     const url = new URL(raw);
     calls.push(url.pathname);
+    if (url.pathname === '/auth/v1/signup') signupMetadata.push(JSON.parse(options.body).data);
     const answer = answers[url.pathname];
     if (answer) return reply(...answer);
     throw new Error('Unexpected provider call ' + url.pathname);
   };
-  return { calls, repository: createSupabaseRepository({ env, fetchImpl }) };
+  return { calls, signupMetadata, repository: createSupabaseRepository({ env, fetchImpl }) };
 }
 async function boot(t, repository) {
   const server = createApp({ repository, courseStore: null, fiiuStore: null, newsStore: null, nodeRequestStore: null, visitStore: null, metricsStore: null });
   server.listen(0, '127.0.0.1'); await once(server, 'listening'); t.after(() => server.close());
   return 'http://127.0.0.1:' + server.address().port;
 }
-const post = (base, path, body) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const post = (base, path, body, headers = {}) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
 const quietly = t => { const error = console.error; console.error = () => {}; t.after(() => { console.error = error; }); };
+
+test('signup sends the selected site language to confirmation templates and accepts older clients', async t => {
+  const { repository, signupMetadata } = goTrue({ '/auth/v1/signup': [{ id: 'fixture-user' }, 200] });
+  const base = await boot(t, repository);
+  const cases = [
+    ['en', {cookie:'nodal.lang=pt'}, 'en'],
+    ['es', {'accept-language':'en-US'}, 'es'],
+    ['pt', {'accept-language':'es-PE'}, 'pt'],
+    [undefined, {cookie:'nodal.lang=en; nodal.lang.chosen=1', 'accept-language':'pt-BR'}, 'en'],
+    [undefined, {cookie:'nodal.lang=en', 'accept-language':'pt-BR'}, 'pt'],
+    [undefined, {}, 'es'],
+    [{unrecognized:true}, {'accept-language':'fr-FR'}, 'es'],
+  ];
+  for (const [index, [language, headers, expected]] of cases.entries()) {
+    const body = { fullName:'Test Member', email:`member-${index}@example.test`, password:'correct-horse', language };
+    const response = await post(base, '/api/auth/signup', body, headers);
+    assert.equal(response.status, 202);
+    assert.equal((await response.json()).requiresEmailConfirmation, true);
+    assert.deepEqual(signupMetadata[index], { full_name:'Test Member', language:expected });
+  }
+});
 
 test('a sign-up whose confirmation email could not be sent says the email is unavailable, never to sign in', async t => {
   quietly(t);

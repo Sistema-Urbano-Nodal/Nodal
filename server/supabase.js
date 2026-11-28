@@ -1052,7 +1052,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
       if (!isActive(user)) return { user: null, cookies: clearSessionCookies(env) };
       return { user, cookies: sessionCookies(session, env) };
     },
-    async signup({ fullName, email, password }) {
+    async signup({ fullName, email, password, language = 'es' }) {
       // The confirmation email returns to sign-in, where the browser still remembers the page that asked for it
       // (a check-in, say). Without a configured origin, Supabase keeps its own Site URL.
       let confirmTo = null;
@@ -1066,7 +1066,7 @@ export function createSupabaseRepository({ env = process.env, fetchImpl = fetch 
         data = await browser.auth('/signup', {
           method: 'POST',
           ...(confirmTo ? { query: { redirect_to: confirmTo } } : {}),
-          body: { email, password, data: { full_name: fullName }, code_challenge: challenge, code_challenge_method: 's256' },
+          body: { email, password, data: { full_name: fullName, language }, code_challenge: challenge, code_challenge_method: 's256' },
         });
       } catch (err) {
         /* GoTrue sends the confirmation inside the sign-up and rolls the account back when the mail server refuses it

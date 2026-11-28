@@ -312,7 +312,7 @@ test('signup asks for a PKCE confirmation link and keeps no verifier, on every r
     assert.match(body.code_challenge, /^[A-Za-z0-9_-]{43}$/);
     assert.equal(body.code_challenge_method, 's256');
     assert.equal(body.email, state.profile.email);
-    assert.deepEqual(body.data, { full_name: state.profile.full_name });
+    assert.deepEqual(body.data, { full_name: state.profile.full_name, language: 'es' });
   }
   assert.notEqual(bodies[0].code_challenge, bodies[1].code_challenge, 'each link gets its own challenge');
   assert.equal(calls[0].url.searchParams.get('redirect_to'), 'https://nodal.example/login.html');

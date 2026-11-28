@@ -1,0 +1,1 @@
+{{ $lang := printf "%v" (and .Data .Data.language) }}{{ $en := eq $lang "en" }}{{ $pt := eq $lang "pt" }}{{ if $en }}Confirm your email for NODAL{{ else if $pt }}Confirme seu e-mail na NODAL{{ else }}Confirma tu correo en NODAL{{ end }}

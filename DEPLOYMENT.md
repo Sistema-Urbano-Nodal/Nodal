@@ -707,7 +707,21 @@ In Supabase Auth URL configuration:
   - `https://your-domain.example/reset-password.html`
   - `https://your-domain.example/accept-invitation.html`
 
-If email confirmations are enabled, keep the Supabase confirmation template pointed at the production domain.
+### Signup confirmation email
+
+In Supabase Auth → Email Templates → Confirm signup, set the subject from
+`supabase/templates/confirmation.subject.txt` and the body from
+`supabase/templates/confirmation.html`. The corresponding Auth configuration
+fields are `mailer_subjects_confirmation` and `mailer_templates_confirmation_content`.
+Save a copy of those two settings before publishing so you can restore them together.
+
+The signup form passes its selected language to Auth as `data.language`. The template
+uses English, Spanish or Portuguese for the subject, message and button. It uses
+Spanish when the metadata is missing or unsupported. The button uses Supabase's
+`{{ .ConfirmationURL }}` and the NODAL logos load from the configured Site URL.
+After editing the copy or shared email design, regenerate the two files with
+`node scripts/build-signup-confirmation-email.js`. A web deployment updates the
+signup form and API. The hosted email template is published separately in Supabase.
 
 ## Local Development Setup
 

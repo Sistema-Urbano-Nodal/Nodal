@@ -1006,14 +1006,16 @@ const NOT_FOUND_TEXT = {
   en: ['Page not found', 'We could not find this page', 'The address may have a typo, or the page may no longer exist.', 'Go to the home page', 'Go to my console'],
   pt: ['Página não encontrada', 'Não encontramos esta página', 'O endereço pode ter um erro, ou a página pode não existir mais.', 'Ir para a página inicial', 'Ir para o painel'],
 };
-function notFoundLanguage(req) {
+const SITE_LANGUAGES = ['es', 'en', 'pt'];
+function requestLanguage(req, selected) {
+  if (SITE_LANGUAGES.includes(selected)) return selected;
   const cookies = parseCookies(req.headers.cookie), saved = cookies.get('nodal.lang');
-  if (Object.hasOwn(NOT_FOUND_TEXT, saved || '') && (saved !== 'en' || cookies.get('nodal.lang.chosen') === '1')) return saved;
-  return String(req.headers['accept-language'] || '').split(',').map(tag => tag.trim().slice(0, 2).toLowerCase()).find(tag => Object.hasOwn(NOT_FOUND_TEXT, tag)) || 'es';
+  if (SITE_LANGUAGES.includes(saved) && (saved !== 'en' || cookies.get('nodal.lang.chosen') === '1')) return saved;
+  return String(req.headers['accept-language'] || '').split(',').map(tag => tag.trim().slice(0, 2).toLowerCase()).find(tag => SITE_LANGUAGES.includes(tag)) || 'es';
 }
 function notFound(req, res) {
   if (!/\btext\/html\b/.test(req.headers.accept || '')) { send(res, 404, { error: 'not found' }); return; }
-  const lang = notFoundLanguage(req), [title, heading, hint, home, panel] = NOT_FOUND_TEXT[lang];
+  const lang = requestLanguage(req), [title, heading, hint, home, panel] = NOT_FOUND_TEXT[lang];
   res.writeHead(404, { ...htmlSecurityHeaders(), 'Content-Type': MIME['.html'], 'Cache-Control': 'no-store' });
   res.end(req.method === 'HEAD' ? undefined : `<!DOCTYPE html>
 <html lang="${lang}" translate="no"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>NODAL · ${title}</title>
@@ -1939,7 +1941,7 @@ export function createApp({
         }
         let result;
         try {
-          result = await repository.signup({ fullName, email, password, env: process.env });
+          result = await repository.signup({ fullName, email, password, language: requestLanguage(req, body.language), env: process.env });
           // A refused sign-up sent no email, so it does not count against the ceiling.
           if (result?.error) signupEmailCeiling.release('signup-email:all');
         } catch (err) {
