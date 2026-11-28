@@ -77,7 +77,7 @@ test('the terms link to the public membership benefits, the 2026 programme and t
   const benefits = section(text, 3);
   assert.match(benefits, /<li>Acceso Comunitario: <a href="\/#membership">[^<]+<\/a>\.<\/li>/);
   assert.match(benefits, /<li>Membresía Fundador: <a href="\/#membership">beneficios de la Membresía Fundador en la página de inicio de Nodal<\/a>\.<\/li>/);
-  assert.ok(read('web/pages/index.html').includes('<section class="section membership" id="membership">'), 'the landing page’s membership section');
+  assert.match(read('web/pages/index.html'), /<section\b[^>]*\bid="membership"[^>]*>/, 'the landing page’s membership section');
   assert.ok(section(text, 4).includes('Aquí puedes ver, a modo de ejemplo, <a href="/courses.html">la programación 2026</a>.'), 'the sentence says “aquí”, so it links');
   const complementary = section(text, 18);
   assert.match(complementary, /<li>Condiciones generales de uso de la plataforma\.<\/li>/, 'kept, but promising no link NODAL does not have');

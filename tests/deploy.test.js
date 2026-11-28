@@ -332,7 +332,7 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
   }
   const required = {
     'index.html': { 'styles.css': '20261128c', 'i18n.js': '20261128c', 'app.js': '20261128p', 'recs.js': '6', 'script.js': '18', 'hero-network.js': '2', 'node-request.js': '20261116a', 'node-request.css': '20261128c' , ...visit },
-    'fundadores.html': { 'styles.css': '37', 'i18n.js': '20261128p', 'nav.js': '20261116a', 'locale.js': '20261009a', 'fundadores.js': '20261128p', 'fundadores.css': '20261029a' , ...visit },
+    'fundadores.html': { 'styles.css': '37', 'i18n.js': '20261128c', 'nav.js': '20261116a', 'locale.js': '20261009a', 'fundadores.js': '20261128p', 'fundadores.css': '20261029a' , ...visit },
     'opportunities.html': { 'catalog.css': '8', 'i18n.js': '20261116a', 'catalog.js': '8', ...pilot , ...visit },
     'messages.html': { 'messages.js': '20261119c', 'messages-i18n.js': '20261119c', 'messages.css': '20261119c' },
     'dashboard.html': { 'buc.js': '20261116a', 'i18n-dashboard.js': '20261123f', 'i18n.js': '20261116a', ...festival, 'fiiu-live.js': '20261123h', 'fiiu-hubs.js': '20261116a', 'news-feed.js': '20261123d', 'dashboard.js': '20261123h', 'dashboard.css': '20261123g', 'location-check.js': '20261116a', ...pilot , ...visit },
