@@ -327,6 +327,13 @@ Before releasing the notification bell, apply `supabase/migrations/2026111923265
 
 For news and featured opportunities in the bell, apply `supabase/migrations/20261124030000_editorial_bell.sql` after the publication email migrations and record version `20261124030000`. A new public editorial event becomes visible to existing members regardless of email subscription. Opening a notice clears it for that member. The chat-only notification RPC remains available to older clients.
 
+### Optional private-message emails
+
+Before deploying the inbox preference and sender, apply `supabase/migrations/20261128145110_private_message_email_alerts.sql` using the single-file SQL Migration Steps and record version `20261128145110`. The service role needs access to the new preferences, outbox and delivery functions. Members opt in from Messages. The queue starts empty, including for people who already have unread messages.
+
+The existing quarter-hour email schedule also drains up to 100 private-message alerts per run. It uses the SMTP and site settings described below. Multiple unread messages from the same conversation share one pending alert. Reading the conversation or opting out removes it. Before handing mail to SMTP, the sender checks for a current unread direct message, active accounts, a confirmed recipient address, and an unblocked conversation. The email contains links to the inbox and its email setting.
+
+Temporary failures before provider acceptance retry after 15 minutes, up to three attempts. Check the provider before replaying an `uncertain` or stale `sending` row. The recovery workflow also drains this queue. The publication CLI only handles publication deliveries.
 
 ## Optional publication emails
 
@@ -727,8 +734,8 @@ npm start
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
 2. Apply every pending Supabase migration (every file in the release sections
-   above, most recently `20261124030000_editorial_bell.sql` under
-   "Private messages and project groups", before pushing `main`) one file
+   above, most recently `20261128145110_private_message_email_alerts.sql` under
+   "Optional private-message emails", before pushing `main`) one file
    at a time as described in "SQL Migration Steps" (never `supabase db push`
    against production) and confirm them.
 3. Configure Vercel environment variables.

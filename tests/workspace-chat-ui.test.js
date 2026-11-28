@@ -23,13 +23,23 @@ class ChatNode extends Node {
   getClientRects() { return [{}]; }
 }
 
-async function openChat(firstContact, lang = 'en', { invite = false } = {}) {
+async function openChat(firstContact, lang = 'en', { invite = false, emailPreference, emailLink = false } = {}) {
   const body = new ChatNode('body'), ids = new Map();
   for (const id of ['detail', 'inbox-list', 'inbox-search', 'new-message', 'new-group', 'mailbox-owner']) {
     const element = new ChatNode('div');
     ids.set(id, element); body.append(element);
   }
   const current = new URL('https://nodal.test/messages.html');
+  if (emailPreference) {
+    const fields = {'email-alerts':'details','dm-email-choice':'label','dm-email-enabled':'input','dm-email-status':'p','dm-email-retry':'button'};
+    for (const [id, tag] of Object.entries(fields)) {
+      const element = new ChatNode(tag);
+      ids.set(id, element);
+      body.append(element);
+    }
+    if (emailLink === 'query') current.searchParams.set('settings','email');
+    else if (emailLink) current.hash = '#email-alerts';
+  }
   const me = { id: randomUUID(), fullName: 'Ana' }, peer = { id: randomUUID(), fullName: 'Rosa', title: 'Member' };
   const thread = { id: randomUUID(), name: firstContact ? peer.fullName : 'School streets', revision: 0,
     kind: firstContact ? 'direct' : 'group', status: firstContact ? 'pending' : 'active', peerId: peer.id, initiatorId: me.id };
@@ -41,7 +51,9 @@ async function openChat(firstContact, lang = 'en', { invite = false } = {}) {
   const events = [], openedThreads = [];
   async function fetch(path, options) {
     let data;
-    if (path === '/api/auth/me') data = { user: me };
+    if (path === '/api/workspace/email-preference' && emailPreference) {
+      data = await emailPreference(options.method || 'GET', options.body && JSON.parse(options.body));
+    } else if (path === '/api/auth/me') data = { user: me };
     else if (path === '/api/users/' + peer.id) data = { user: peer };
     else if (path === '/api/workspace' && options.method !== 'POST') {
       data = { threads: firstContact && !messages.length ? [] : [thread], invitations: pending ? [invitation] : [] };
@@ -79,8 +91,61 @@ async function openChat(firstContact, lang = 'en', { invite = false } = {}) {
   });
   for (const name of ['messages-i18n', 'messages']) vm.runInContext(script(name), context, { filename: name + '.js' });
   await flush();
-  return { detail: ids.get('detail'), writes, current, thread, peer, fileId, events, openedThreads, invitation };
+  return { detail: ids.get('detail'), ids, writes, current, thread, peer, fileId, events, openedThreads, invitation };
 }
+
+test('direct-message email is optional, reads the saved choice, and writes only explicit changes in the member’s language', async () => {
+  for (const lang of ['en','es','pt']) {
+    let enabled = false;
+    const changes = [];
+    const {ids} = await openChat(false, lang, {emailLink:lang === 'es' ? 'query' : true, emailPreference(method, body) {
+      if (method === 'POST') { changes.push(body); enabled = body.enabled; }
+      return {enabled};
+    }});
+    const panel = ids.get('email-alerts'), checkbox = ids.get('dm-email-enabled');
+    assert.equal(panel.open, true);
+    assert.equal(checkbox.checked, false);
+    assert.deepEqual(changes, []);
+    for (const next of [true,false]) {
+      checkbox.checked = next;
+      await checkbox.listeners.change();
+      assert.equal(enabled, next);
+      assert.equal(checkbox.disabled, false);
+      assert.deepEqual(changes.at(-1), {enabled:next, language:lang});
+      assert.equal(ids.get('dm-email-status').dataset.msg,'emailSaved');
+      panel.listeners.toggle();
+      await flush();
+      assert.equal(checkbox.checked, next);
+    }
+    assert.equal(changes.length, 2);
+  }
+});
+
+test('a failed read or lost save response requires a fresh read before changing the preference again', async () => {
+  let saved = false, reads = 0, posts = 0;
+  const {ids} = await openChat(false, 'es', {emailLink:true, emailPreference(method, body) {
+    if (method === 'GET') {
+      if (++reads === 1) return {};
+      return {enabled:saved};
+    }
+    posts++;
+    saved = body.enabled;
+    throw Error('Lost save response');
+  }});
+  const choice = ids.get('dm-email-choice'), checkbox = ids.get('dm-email-enabled');
+  const retry = ids.get('dm-email-retry');
+  assert.equal(choice.hidden, true);
+  assert.equal(retry.hidden, false);
+  await retry.listeners.click();
+  assert.equal(checkbox.checked, false);
+  checkbox.checked = true;
+  await checkbox.listeners.change();
+  assert.equal(choice.hidden, true);
+  assert.equal(retry.hidden, false);
+  await retry.listeners.click();
+  assert.equal(checkbox.checked, true);
+  assert.equal(posts, 1);
+});
 
 test('a notification opens the specific invitation without reading another conversation; declining clears it', async () => {
   const { detail, invitation, openedThreads, writes, events } = await openChat(false, 'en', { invite: true });

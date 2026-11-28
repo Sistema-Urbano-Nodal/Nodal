@@ -1,3 +1,4 @@
+import { createDirectEmailStore, SQLITE_DIRECT_EMAIL } from './direct-email.js';
 import { combinedBell, readEditorial } from './workspace-editorial.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { profilePhotoFields } from './profile-policy.js';
@@ -156,6 +157,7 @@ export function createSqliteWorkspace(db) {
           ORDER BY q.rowid DESC LIMIT 1)
         WHERE m.status='active' AND m.unread=1 AND t.kind='direct' AND t.status<>'blocked'`);
     }
+    db.exec(SQLITE_DIRECT_EMAIL);
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
@@ -466,6 +468,7 @@ export function createSqliteWorkspace(db) {
     return result;
   }
   return {
+    emailAlerts: createDirectEmailStore({db}),
     execute(actor, op, data = {}) {
       db.exec(readOperations.has(op) ? 'BEGIN' : 'BEGIN IMMEDIATE');
       try {

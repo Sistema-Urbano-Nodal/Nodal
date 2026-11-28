@@ -1,3 +1,4 @@
+import { createDirectEmailStore, createDirectEmailSender } from '../../server/direct-email.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { createNewsAlerts, createNewsEmailSender } from '../../server/news-alerts.js';
 import { dataBackend } from '../../server/supabase.js';
@@ -29,7 +30,21 @@ export async function drainNewsEmail(env, {
   return totals;
 }
 
-export function createNewsEmailCron({ env = process.env, run = drainNewsEmail, log = console } = {}) {
+// The existing authenticated quarter-hour schedule serves both opt-in email queues.
+export async function drainScheduledEmail(env, {
+  publications = () => drainNewsEmail(env),
+  direct = () => createDirectEmailSender(env)(createDirectEmailStore({env}),{limit:100,deadline:Date.now()+240_000}),
+} = {}) {
+  const results = await Promise.allSettled([Promise.resolve().then(publications),Promise.resolve().then(direct)]);
+  const counts = {sent:0,failed:0,uncertain:0,deferred:0,skipped:0};
+  for (const result of results) {
+    if (result.status === 'rejected') throw result.reason;
+    for (const key of Object.keys(counts)) counts[key] += result.value[key] ?? 0;
+  }
+  return counts;
+}
+
+export function createNewsEmailCron({ env = process.env, run = drainScheduledEmail, log = console } = {}) {
   return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');

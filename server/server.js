@@ -2118,6 +2118,7 @@ export function createApp({
         if(newsStore?.alerts)data.newsEmail=await newsStore.alerts.exportFor(sessionUser.id);
         if(courseStore)data.coursePilot=await exportCourseData(courseStore,sessionUser.id);
         if(fiiuStore)data.fiiu=await exportFiiuData(fiiuStore,sessionUser.id);
+        if (workspaceStore?.emailAlerts) data.directMessageEmail = await workspaceStore.emailAlerts.exportFor(sessionUser.id);
         if (workspaceStore) data.memberWorkspace = await workspaceStore.execute(sessionUser.id, 'export', {});
         if(talkStore)data.fiiuConversations=await exportTalkData(talkStore,sessionUser.id);
         send(res, 200, { data });

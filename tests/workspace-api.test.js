@@ -36,6 +36,16 @@ test('members can find the right namesake, reply, invite a team and work on a pr
   const threadPath = id => '/api/workspace?threadId=' + id;
   assert.equal((await call(null, '/messages.html')).status, 302);
   assert.equal((await call(null, '/api/workspace')).status, 401);
+  const emailPath='/api/workspace/email-preference';
+  const enabled={enabled:true,language:'pt'};
+  assert.equal((await call(null,emailPath)).status,401);
+  assert.deepEqual(await ok(ana,emailPath),{enabled:false});
+  assert.equal((await call(ana,emailPath,enabled,'https://other.example')).status,403);
+  assert.equal((await call(ana,emailPath,{...enabled,userId:lucas.id})).status,400);
+  assert.deepEqual(await ok(ana,emailPath,enabled),{enabled:true});
+  assert.deepEqual(await ok(lucas,emailPath),{enabled:false});
+  assert.equal((await ok(ana,'/api/me/export')).data.directMessageEmail.subscription.language,'pt');
+  assert.deepEqual(await ok(ana,emailPath,{enabled:false,language:'pt'}),{enabled:false});
   const alerts = '/api/workspace/notifications';
   assert.equal((await call(null, alerts)).status, 401);
   assert.equal((await call(lucas, alerts, {})).status, 405);

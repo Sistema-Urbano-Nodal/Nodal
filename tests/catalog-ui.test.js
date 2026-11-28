@@ -363,11 +363,16 @@ function dictionaryKeys(source, name) {
 test('homepage leads with membership choices and retains the network story and festival archive', () => {
   const html = index();
   assert.match(html, /<body data-page="home">/);
-  assert.match(html, /data-i18n="hero\.building">A living network</);
-  assert.match(html, /data-i18n="hero\.infra">for Latin America’s|data-i18n="hero\.infra">for Latin America's/);
+  assert.match(html, /data-i18n="hero\.building">Find partners</);
+  assert.match(html, /data-i18n="hero\.collabMark">urban project</);
   const order = [...html.matchAll(/<section\b[^>]*\bid="([^"]+)"/g)].map((match) => match[1]);
-  // 'urbanismo' (collaborative urbanism, Prof. Mariana's copy) joined after 'problem' on 19 Oct 2026.
-  assert.deepEqual(order, ['home', 'membership', 'about', 'problem', 'urbanismo', 'insight', 'platform', 'profile', 'knowledge', 'resources', 'fiiu', 'partners']);
+  assert.deepEqual(order, ['home', 'membership', 'urbanismo', 'platform', 'profile', 'resources', 'fiiu']);
+  for (const id of ['about', 'problem', 'insight', 'knowledge', 'partners', 'leaderRow']) {
+    assert.equal(html.split(`id="${id}"`).length, 2, `#${id} still points to one destination`);
+  }
+  for (const href of ['courses.html', 'opportunities.html?kind=resource,case_study', 'opportunities.html?kind=opportunity']) {
+    assert.ok(html.includes(`href="${href}"`), href);
+  }
   assert.doesNotMatch(html, /(?:src|href)="(?:catalog|courses|pilot(?:-i18n)?)\.(?:js|css)/);
 });
 

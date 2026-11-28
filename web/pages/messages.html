@@ -10,11 +10,11 @@
   <script src="locale.js?v=20261009a"></script>
   <link rel="preload" href="assets/fonts/montserrat-v31-latin-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="fonts.css?v=20260911b">
-  <link rel="stylesheet" href="messages.css?v=20261119c">
+  <link rel="stylesheet" href="messages.css?v=20261128dm">
   <link rel="stylesheet" href="workspace-notifications.css?v=20261119d">
   <script defer src="i18n.js?v=20261116a"></script>
-  <script defer src="messages-i18n.js?v=20261119c"></script>
-  <script defer src="messages.js?v=20261119c"></script>
+  <script defer src="messages-i18n.js?v=20261128dm"></script>
+  <script defer src="messages.js?v=20261128dm"></script>
   <script defer src="workspace-notifications.js?v=20261124a"></script>
   <script defer src="overview-return.js?v=20261123h"></script>
 </head>
@@ -37,6 +37,15 @@
         <a id="new-message" class="write-link" href="messages.html?new=message"><span aria-hidden="true" class="compose-icon">✎</span><span data-msg="newMessage">New message</span></a>
       </header>
       <div id="inbox-search" class="inbox-search"></div>
+      <details id="email-alerts" class="inbox-email">
+        <summary data-msg="emailHeading">Email notifications</summary>
+        <label id="dm-email-choice" hidden>
+          <input id="dm-email-enabled" type="checkbox" disabled>
+          <span data-msg="emailChoice">Email me about unread direct messages.</span>
+        </label>
+        <p id="dm-email-status" role="status" data-msg="loading">Loading…</p>
+        <button id="dm-email-retry" type="button" class="button secondary" data-msg="retry" hidden>Try again</button>
+      </details>
       <div id="inbox-list"></div>
     </aside>
     <footer class="rail-foot">

@@ -64,6 +64,11 @@ h3 { font-size: 1.06rem; line-height: 1.4; font-weight: 670; letter-spacing: -.0
 .inbox-search > p { margin: 9px 0; }
 .inbox-search .recipient-option { gap: 9px; }
 #inbox-list { border-top: 1px solid var(--line); }
+.inbox-email { padding: 0 22px 10px; font-size: .85rem; }
+.inbox-email summary { padding: 8px 0; color: var(--forest); font-weight: 600; }
+.inbox-email label { display: flex; align-items: flex-start; gap: 9px; padding: 6px 0; cursor: pointer; }
+.inbox-email input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--forest); }
+.inbox-email p { color: var(--muted); }
 .thread-row { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 76px; padding: 13px 20px; text-decoration: none; color: var(--ink); border-bottom: 1px solid #e9ece5; }
 .thread-row:hover { background: #f5f7f2; }
 .thread-row[aria-current="page"] { background: #e9f1e5; }

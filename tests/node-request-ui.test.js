@@ -212,7 +212,7 @@ test('the card and the window say the team’s words in Spanish, and English and
   const COPY = {
     'mem.org.name': ['NODAL for organizations', 'Para organizaciones NODAL', 'Para organizações NODAL'],
     'mem.org.tagline': ['Activate a territorial and/or thematic Node', 'Activa un Nodo territorial y/o temático', 'Ative um Nó territorial e/ou temático'],
-    'mem.org.p': ['If your organization wants to promote a node in its area of influence and/or help give visibility to an urban issue, contact us to talk it over. You can also sponsor memberships for a community.', 'Si eres una organización interesada en promover un nodo en tu área de influencia y/o quieres contribuir a dar visibilidad a un tema urbano. Contáctanos para conversar. También puedes patrocinar membresías para una comunidad.', 'Se você é uma organização interessada em promover um nó na sua área de influência e/ou quer contribuir para dar visibilidade a um tema urbano, entre em contato para conversarmos. Você também pode patrocinar membresias para uma comunidade.'],
+    'mem.org.p': ['Propose a local initiative or sponsor memberships for a community.', 'Propón una iniciativa local o patrocina membresías para una comunidad.', 'Proponha uma iniciativa local ou patrocine membresias para uma comunidade.'],
     'mem.org.kind': ['What are you interested in?', '¿Qué les interesa?', 'O que interessa a vocês?'],
     'mem.org.kindNode': ['Activate a Node', 'Activar un Nodo', 'Ativar um Nó'],
     'mem.org.kindSponsor': ['Sponsor memberships', 'Patrocinar membresías', 'Patrocinar membresias'],

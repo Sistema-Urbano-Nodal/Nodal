@@ -27,6 +27,8 @@ test('PostgreSQL member conversations, invitations and project collaboration', {
     CREATE TABLE profiles(id uuid PRIMARY KEY,full_name text,preferred_name text,account_status text DEFAULT 'active');
     CREATE TABLE profile_preferences(user_id uuid PRIMARY KEY, data_consent jsonb);
     CREATE TABLE onboarding_responses(user_id uuid PRIMARY KEY, raw_answers jsonb);
+    CREATE SCHEMA auth;
+    CREATE TABLE auth.users(id uuid PRIMARY KEY,email text,email_confirmed_at timestamptz);
     GRANT USAGE ON SCHEMA public TO service_role,anon,authenticated,supabase_auth_admin;
     GRANT SELECT ON profiles,profile_preferences,onboarding_responses TO service_role;
     GRANT UPDATE ON profiles TO service_role;
@@ -233,11 +235,61 @@ test('PostgreSQL member conversations, invitations and project collaboration', {
     assert.equal(capped.items.length,20);
     assert.deepEqual(capped.items.map(i=>i.createdAt),capped.items.map(i=>i.createdAt).sort().reverse());
   });
+  await t.test('private email queues only opted-in direct recipients and rechecks confirmed identity, reads and blocks', async () => {
+    const migration=new URL('../supabase/migrations/20261128145110_private_message_email_alerts.sql',import.meta.url);
+    await execute('psql',[...args,'-f',migration.pathname]);
+    const [sender,reader,off]=Array.from({length:3},()=>randomUUID());
+    for (const uid of [sender,reader,off]) await sql(`INSERT INTO profiles(id,full_name) VALUES('${uid}','Synthetic');
+      INSERT INTO profile_preferences VALUES('${uid}','{"directoryPublic":true}');
+      INSERT INTO auth.users VALUES('${uid}','fixture@example.test',NULL);`);
+    const run=statement=>sql('SET ROLE service_role; '+statement);
+    const enroll=uid=>run(`INSERT INTO public.direct_email_preferences VALUES('${uid}','es');`);
+    const next=()=>run('SELECT row_to_json(j) FROM public.claim_direct_email() j');
+    const recipient=job=>run(`SELECT row_to_json(x) FROM public.direct_email_recipient('${job.thread_id}','${job.user_id}','${job.event_id}',${job.attempts}) x`);
+    for(const role of ['anon','authenticated']) {
+      assert.equal(await sql(`SELECT has_table_privilege('${role}','public.direct_email_preferences','select')`),'f');
+      assert.equal(await sql(`SELECT has_function_privilege('${role}','public.direct_email_recipient(uuid,uuid,uuid,integer)','execute')`),'f');
+      assert.equal(await sql(`SELECT has_function_privilege('${role}','public.export_direct_email(uuid)','execute')`),'f');
+    }
+    const dm=await op(sender,'direct',message(reader,'First before opt-in'));
+    await enroll(reader);
+    assert.equal(await next(),'');
+    await op(reader,'send',{...dm,body:'Reply',clientId:randomUUID()});
+    const grp=await op(sender,'group',{targetIds:[reader],name:'Test group',clientId:randomUUID()});
+    await op(reader,'accept',grp);
+    await op(sender,'send',{...grp,body:'Group',clientId:randomUUID()});
+    assert.equal(await next(),'');
+    const post={...dm,body:'',attachments:[{name:'secret.txt',mime:'text/plain',size:1,data:'eA=='}],clientId:randomUUID()};
+    await op(sender,'sendFiles',post);
+    await op(sender,'sendFiles',post);
+    const claims=await Promise.all([next(),next()]);
+    assert.equal(claims.filter(Boolean).length,1);
+    const job=JSON.parse(claims.find(Boolean));
+    assert.equal(job.user_id,reader);
+    const exported=JSON.parse(await run(`SELECT public.export_direct_email('${reader}')`));
+    assert.equal(exported.subscription.language,'es');
+    assert.deepEqual(exported.deliveries,[{event_id:job.event_id,status:'sending',attempts:1}]);
+    assert.equal(await recipient(job),'','unconfirmed Auth address');
+    await sql(`UPDATE auth.users SET email_confirmed_at=now() WHERE id='${reader}'`);
+    assert.deepEqual(JSON.parse(await recipient(job)),{email:'fixture@example.test',language:'es'});
+    await run(`DELETE FROM public.direct_email_preferences WHERE user_id='${reader}'`);
+    assert.deepEqual(JSON.parse(await run(`SELECT public.export_direct_email('${reader}')`)),{subscription:null,deliveries:[]});
+    assert.equal(await recipient(job),'','unsubscribe also invalidates an in-flight claim');
+    await enroll(reader);
+    assert.equal(await next(),'','no historical replay');
+    await op(sender,'send',{...dm,body:'Read before drain',clientId:randomUUID()});
+    await op(reader,'read',{...dm,revision:(await op(reader,'thread',dm)).thread.revision});
+    assert.equal(await next(),'');
+    await op(sender,'send',{...dm,body:'Block before delivery',clientId:randomUUID()});
+    const blocked=JSON.parse(await next());
+    await op(reader,'block',dm);
+    assert.equal(await recipient(blocked),'');
+  });
+
   await t.test('editorial notices reach members independently of preferences and coexist with chat',async () => {
     const migrate = async name => execute('psql',[...args,'-f',new URL('../supabase/migrations/'+name,import.meta.url).pathname]);
     await sql(`ALTER TABLE profiles ADD COLUMN created_at timestamptz DEFAULT now();
       CREATE TABLE catalog_items(id uuid PRIMARY KEY,kind text,status text,visibility text,featured boolean,translations jsonb);
-      CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY,email text,email_confirmed_at timestamptz);
       GRANT SELECT,INSERT,UPDATE,DELETE ON catalog_items TO service_role;`);
     await migrate('20261001011356_nodal_news.sql');
     await migrate('20261122010000_news_email_alerts.sql');

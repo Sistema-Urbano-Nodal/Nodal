@@ -1,5 +1,10 @@
 /* The private member workspace uses the site's language switch. User-written text stays as written. */
 window.nodalMessagesText = {
+  emailHeading: ['Email notifications', 'Avisos por correo', 'Avisos por e-mail'],
+  emailChoice: ['Email me about unread direct messages.', 'Avísame por correo si tengo mensajes directos sin leer.', 'Quero receber avisos por e-mail sobre mensagens diretas não lidas.'],
+  emailSaving: ['Saving your preference…', 'Guardando tu preferencia…', 'Salvando sua preferência…'],
+  emailSaved: ['Preference saved.', 'Preferencia guardada.', 'Preferência salva.'],
+  emailUnavailable: ['We couldn’t verify your email preference. Try again to check the saved setting.', 'No pudimos verificar tu preferencia de correo. Vuelve a intentarlo para consultar la opción guardada.', 'Não foi possível verificar sua preferência de e-mail. Tente novamente para consultar a opção salva.'],
   messages: ['Messages', 'Mensajes', 'Mensagens'],
   dashboard: ['My dashboard', 'Mi panel', 'Meu painel'],
   inbox: ['Inbox', 'Bandeja de entrada', 'Caixa de entrada'],

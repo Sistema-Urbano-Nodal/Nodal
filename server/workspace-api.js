@@ -1,11 +1,13 @@
+import { createDirectEmailStore } from './direct-email.js';
 import { downloadWorkspaceAttachment, normalizeWorkspaceAttachments, WORKSPACE_JSON_LIMIT } from './workspace-attachments.js';
 import { createSupabaseClients } from './supabase.js';
 
 const WORKSPACE_FILE = /^\/api\/(workspace|me\/export)\/attachments\/([^/]+)$/;
+const EMAIL_PREFERENCE = '/api/workspace/email-preference';
 const NOTIFICATIONS_PATH = '/api/workspace/notifications';
 const EDITORIAL_READ_PATH = NOTIFICATIONS_PATH + '/read';
 export function isWorkspaceRoute(pathname) {
-  return pathname === '/api/workspace' || pathname === NOTIFICATIONS_PATH || pathname === EDITORIAL_READ_PATH || WORKSPACE_FILE.test(pathname);
+  return pathname === '/api/workspace' || pathname === NOTIFICATIONS_PATH || pathname === EMAIL_PREFERENCE || pathname === EDITORIAL_READ_PATH || WORKSPACE_FILE.test(pathname);
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function invalid(field) {
@@ -53,6 +55,7 @@ const fileOperations = { direct: 'directFiles', send: 'sendFiles' };
 
 export function createHostedWorkspace(clients) {
   return {
+    emailAlerts: createDirectEmailStore({clients}),
     async execute(actorId, op, data) {
       clients ??= createSupabaseClients();
       let rpc = 'member_workspace', body = {p_actor:actorId, p_op:op, p_data:data};
@@ -86,6 +89,15 @@ export async function serveWorkspace({ req, res, url, actor, store, send, sameOr
   if (!['GET', 'POST'].includes(req.method)) return send(res, 405, { error: 'Method not allowed' }, { Allow: 'GET, POST' });
   if (req.method === 'POST' && !sameOrigin(req)) return send(res, 403, { error: 'Cross-origin request rejected' });
   if (!allowed()) return;
+  if (url.pathname === EMAIL_PREFERENCE) {
+    if (!store.emailAlerts) return send(res,503,{error:'Message email preferences unavailable'});
+    if (req.method === 'GET') return send(res,200,{enabled:Boolean(await store.emailAlerts.preference(actor.id))});
+    const input = await readJsonBody(req,1024);
+    if (typeof input?.enabled !== 'boolean' || !['es','en','pt'].includes(input.language) ||
+        Object.keys(input).some(key => !['enabled','language'].includes(key))) invalid('email preference');
+    await store.emailAlerts.setPreference(actor.id,input.enabled,input.language);
+    return send(res,200,{enabled:input.enabled});
+  }
   if (feed) {
     const op = url.searchParams.get('editorial') === '1' ? 'combinedBell' : 'notifications';
     return send(res, 200, await store.execute(actor.id, op, {}));

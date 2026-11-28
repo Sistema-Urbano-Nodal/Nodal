@@ -69,6 +69,59 @@
     }
     return result;
   }
+  function setupEmailPreference() {
+    const panel = document.getElementById('email-alerts');
+    if (!panel) return;
+    const choice = document.getElementById('dm-email-choice');
+    const checkbox = document.getElementById('dm-email-enabled');
+    const status = document.getElementById('dm-email-status');
+    const retry = document.getElementById('dm-email-retry');
+    let pending = false;
+
+    async function sync(value) {
+      if (pending) return;
+      const saving = typeof value === 'boolean';
+      const restoreFocus = [checkbox, retry].includes(document.activeElement);
+      pending = true;
+      checkbox.disabled = true;
+      retry.hidden = true;
+      if (!saving) choice.hidden = true;
+      translate(status, saving ? 'emailSaving' : 'loading');
+      try {
+        const signal = typeof AbortSignal !== 'undefined' ? AbortSignal.timeout?.(15000) : undefined;
+        const data = await api('/api/workspace/email-preference',
+          saving ? { enabled: value, language: language() } : undefined, signal);
+        if (typeof data?.enabled !== 'boolean' || (saving && data.enabled !== value)) {
+          throw new Error('Unconfirmed preference');
+        }
+        checkbox.checked = data.enabled;
+        choice.hidden = false;
+        checkbox.disabled = false;
+        if (saving) translate(status, 'emailSaved');
+        else { delete status.dataset.msg; status.textContent = ''; }
+      } catch {
+        choice.hidden = true;
+        retry.hidden = false;
+        translate(status, 'emailUnavailable');
+      } finally {
+        pending = false;
+        if (restoreFocus && panel.open && document.activeElement === document.body) {
+          (retry.hidden ? checkbox : retry).focus();
+        }
+      }
+    }
+    panel.addEventListener('toggle', () => { if (panel.open) sync(); });
+    checkbox.addEventListener('change', () => sync(checkbox.checked));
+    retry.addEventListener('click', () => sync());
+    const openLinkedPreference = () => {
+      if (new URLSearchParams(location.search).get('settings') === 'email' || location.hash === '#email-alerts') {
+        panel.open = true;
+      }
+    };
+    window.addEventListener('hashchange', openLinkedPreference);
+    openLinkedPreference();
+    if (panel.open) sync();
+  }
   const fetchThread = beforeMessageId => api('/api/workspace?' + new URLSearchParams(
     beforeMessageId ? { threadId, beforeMessageId } : { threadId }));
   const go = (args) => location.assign(url(args));
@@ -1124,6 +1177,7 @@
   }
   async function start() {
     localize();
+    setupEmailPreference();
     try {
       const [me, received] = await Promise.all([api('/api/auth/me'), api('/api/workspace')]);
       actor = me.user; listing = received;

@@ -162,10 +162,10 @@ test('the landing card is the Founder Membership: its name, what it supports, it
   for (const key of keys) for (const [lang, api] of [['es', es], ['pt', pt]]) assert.notEqual(api.t(key), key, `${key} in ${lang}`);
 });
 
-test('the card ends on its one button, always shown, to the public join page', () => {
+test('the card has one initially hidden button for the public join page', () => {
   const html = read('web', 'pages', 'index.html');
   const card = html.slice(html.indexOf('<article class="plan plan-pro">'), html.indexOf('</article>', html.indexOf('<article class="plan plan-pro">')));
-  // No hidden attribute: the join page explains the offer in every state, and the terms are one link away from it.
+  // The browser reveals it only when the offer permits signups; pending or unavailable settings keep it hidden.
   assert.match(card, /<\/ul>\s*<a class="btn btn-primary" href="fundadores\.html" data-billing-cta hidden data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>\s*$/);
   assert.equal((card.match(/<a\b/g) || []).length, 1, 'one way in');
   assert.doesNotMatch(card, /plan-terms|payments\.html|terminos-fundadores/);
@@ -187,17 +187,17 @@ test('the landing markup carries no price', () => {
 /* 3 Nov 2026, the team (docs/superpowers/specs/2026-11-03-organisation-node-requests-design.md): a third way in, for
    organisations, beside the two cards and the same size. The two cards stay as they were; the third has no price and no
    list, and its one button opens the request window (tests/node-request-ui.test.js), a plain #nodos link without it. */
-test('the membership section has three cards: the two ways in unchanged, then one for organisations', () => {
+test('the membership section offers free, Founder and institutional routes, with the organisation link anchored', () => {
   const html = read('web', 'pages', 'index.html');
   const plans = html.slice(html.indexOf('<div class="plans">'), html.indexOf('</section>', html.indexOf('<div class="plans">')));
   assert.deepEqual([...plans.matchAll(/<article class="([^"]+)">/g)].map((match) => match[1]), ['plan', 'plan plan-pro', 'plan plan-org']);
   const card = (mark) => plans.slice(plans.indexOf(mark), plans.indexOf('</article>', plans.indexOf(mark)) + '</article>'.length);
   const free = card('<article class="plan">');
-  assert.deepEqual([...free.matchAll(/data-i18n="([^"]+)"/g)].map((match) => match[1]), ['mem.freeName', 'mem.freePrice', 'mem.f1', 'mem.f2', 'mem.f3', 'mem.f4', 'mem.f5a', 'mem.f5b', 'mem.freeCta']);
+  assert.deepEqual([...free.matchAll(/data-i18n="([^"]+)"/g)].map((match) => match[1]), ['mem.freeName', 'mem.freePrice', 'mem.f1', 'mem.f2', 'mem.f3', 'mem.f4', 'mem.freeCta']);
   assert.match(free, /<a class="btn btn-ghost-dark" href="login\.html\?next=\/dashboard\.html#signupForm" data-i18n="mem\.freeCta">Join free<\/a>\s*<\/article>$/);
   assert.match(card('<article class="plan plan-pro">'), /<a class="btn btn-primary" href="fundadores\.html" data-billing-cta hidden data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>\s*<\/article>$/);
   const org = card('<article class="plan plan-org">');
-  assert.match(org, /^<article class="plan plan-org">\s*<header><h3 data-i18n="mem\.org\.name">NODAL for organizations<\/h3><p class="price" data-i18n="mem\.org\.tagline">Activate a territorial and\/or thematic Node<\/p><\/header>\s*<p class="plan-text" data-i18n="mem\.org\.p">[^<]+<\/p>\s*<a class="btn btn-ghost-dark" id="nodeRequestOpen" href="#nodos" data-i18n="mem\.org\.cta">Contact us<\/a>\s*<\/article>$/);
+  assert.match(org, /^<article class="plan plan-org">\s*<header><h3 data-i18n="mem\.org\.name">NODAL for organizations<\/h3><p class="price" data-i18n="mem\.org\.tagline">Activate a territorial and\/or thematic Node<\/p><\/header>\s*<p class="plan-text" id="partners" data-i18n="mem\.org\.p">[^<]+<\/p>\s*<a class="btn btn-ghost-dark" id="nodeRequestOpen" href="#nodos" data-i18n="mem\.org\.cta">Contact us<\/a>\s*<\/article>$/);
   assert.doesNotMatch(org, /<ul|data-billing|S\/|US\$|>[^<]*\d/, 'no checklist and no price');
   assert.equal((org.match(/<a\b/g) || []).length, 1, 'one way in');
   const css = read('web', 'styles', 'styles.css');
@@ -217,6 +217,8 @@ test('the hero leads straight to free registration or the three membership choic
   assert.match(hero, /href="login\.html\?next=\/dashboard\.html#signupForm" data-i18n="mem\.freeCta"/);
   assert.match(hero, /href="#membership" data-i18n="res\.link"/);
   assert.ok(html.indexOf('id="membership"') < html.indexOf('id="about"'));
+  const footer = html.slice(html.indexOf('<footer'));
+  assert.match(footer, /href="login\.html\?next=\/dashboard\.html#signupForm" data-i18n="mem\.freeCta"/);
   for (const lang of ['es', 'pt']) {
     const i18n = loadI18n(lang);
     assert.match(i18n.t('mem.freeCta'), /gr[aá]tis/);

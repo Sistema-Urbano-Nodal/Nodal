@@ -331,10 +331,10 @@ test('changed one-hour-cached clients use new URLs on every consuming page', () 
     assert.ok(html.includes('workspace-notifications.js?v=20261124a') && html.includes('workspace-notifications.css?v=20261119d'), name);
   }
   const required = {
-    'index.html': { 'styles.css': '20261128c', 'i18n.js': '20261128c', 'app.js': '20261128p', 'recs.js': '6', 'script.js': '18', 'hero-network.js': '2', 'node-request.js': '20261116a', 'node-request.css': '20261128c' , ...visit },
-    'fundadores.html': { 'styles.css': '37', 'i18n.js': '20261128c', 'nav.js': '20261116a', 'locale.js': '20261009a', 'fundadores.js': '20261128p', 'fundadores.css': '20261029a' , ...visit },
+    'index.html': { 'styles.css': '20261128c', 'i18n.js': '20261128s', 'app.js': '20261128p', 'recs.js': '6', 'script.js': '18', 'hero-network.js': '2', 'node-request.js': '20261116a', 'node-request.css': '20261128c' , ...visit },
+    'fundadores.html': { 'styles.css': '37', 'i18n.js': '20261128s', 'nav.js': '20261116a', 'locale.js': '20261009a', 'fundadores.js': '20261128p', 'fundadores.css': '20261029a' , ...visit },
     'opportunities.html': { 'catalog.css': '8', 'i18n.js': '20261116a', 'catalog.js': '8', ...pilot , ...visit },
-    'messages.html': { 'messages.js': '20261119c', 'messages-i18n.js': '20261119c', 'messages.css': '20261119c' },
+    'messages.html': { 'messages.js': '20261128dm', 'messages-i18n.js': '20261128dm', 'messages.css': '20261128dm' },
     'dashboard.html': { 'buc.js': '20261116a', 'i18n-dashboard.js': '20261123f', 'i18n.js': '20261116a', ...festival, 'fiiu-live.js': '20261123h', 'fiiu-hubs.js': '20261116a', 'news-feed.js': '20261123d', 'dashboard.js': '20261123h', 'dashboard.css': '20261123g', 'location-check.js': '20261116a', ...pilot , ...visit },
     'login.html': { 'i18n.js': '20261116a', 'auth.js': '20261128', 'auth.css': '20261128', 'recovery-i18n.js': '20261128', ...visit },
     'reset-password.html': { 'i18n.js': '20261116a', 'recovery-i18n.js': '20261022a', 'password-recovery.js': '20261116a' },
