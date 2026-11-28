@@ -53,13 +53,14 @@ const CLOSED = (state) => ({ checkout: false, provider: null, state, offer: OFFE
 const json = (payload) => async () => ({ ok: true, status: 200, async json() { return payload; } });
 const ENDED = { en: 'Offer closed', es: 'Oferta cerrada', pt: 'Oferta encerrada' };
 // Eve audit #17: while sign-ups are not open yet, or the settings cannot be read, the card says so instead of leaving a card with no button.
-const SOON = { en: 'Sign-ups open soon', es: 'Las inscripciones abren pronto', pt: 'As inscrições abrem em breve' };
+const SOON = { en: 'Coming soon', es: 'Próximamente', pt: 'Em breve' };
 // Every answer the card may get: open with both options, with one of them, the shape before the Founder Membership, closed, ended, refused, offline.
 const ANSWERS = {
   open: json(FUNDADORES),
   installmentsOnly: json({ ...FUNDADORES, annual: { amount: 'S/ 550', per: '' }, options: [TWICE] }),
   onceOnly: json({ ...FUNDADORES, options: [ONCE] }),
   legacy: json({ checkout: true, annual: { amount: 'S/ 240', per: '/ year' } }),
+  paused: json({...CLOSED('soon'), paused:true}),
   soon: json(CLOSED('soon')),
   ended: json(CLOSED('ended')),
   refused: async () => ({ ok: false, status: 500, async json() { return { checkout: true, annual: { amount: 'S/ 240' } }; } }),
@@ -82,13 +83,13 @@ test('the Founder Membership card shows no amount in any state, whatever the off
 /* 21 Oct 2026, the team's landing text: the card leads to the join page (/fundadores.html), which explains the benefits and the
    payment options and has the only button to the payments page. So the card has one way in, in every state, and app.js
    touches only its note. */
-test('the card’s one button to the join page stays in every state but one: once the offer has ended it is removed', async () => {
+test('the paid button is visible only while checkout is open', async () => {
   for (const name of Object.keys(ANSWERS)) {
     const page = await landing({ fetchImpl: ANSWERS[name] });
     const button = page.nodes.find((written) => written.selector === '[data-billing-cta]');
     // The note is all it writes (.gc-pool is the graph's copy, which it reads for its labels); the button is only ever removed.
     if (name === 'ended') assert.equal(button?.removed, true, 'an ended offer invites nobody to join');
-    else assert.equal(button?.removed ?? false, false, `${name}: the button stays`);
+    else assert.equal(button.hidden, !['open', 'installmentsOnly', 'onceOnly', 'legacy'].includes(name), name);
     for (const written of page.nodes) if (written.selector !== '[data-billing-state]') assert.equal(written.textContent, '', `${name}: ${written.selector} is never written`);
   }
   const code = APP.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
@@ -129,8 +130,8 @@ test('before sign-ups open, or when the settings cannot be read, the card says s
   let answer;
   const waiting = await landing({ fetchImpl: () => new Promise((resolve) => { answer = resolve; }) });
   waiting.i18n.apply('es');
-  assert.equal(waiting.note.hidden, true);
-  assert.equal(waiting.note.textContent, '');
+  assert.equal(waiting.note.hidden, false);
+  assert.equal(waiting.note.textContent, SOON.es);
   answer({ ok: true, status: 200, async json() { return CLOSED('ended'); } });
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.equal(waiting.note.textContent, ENDED.es);
@@ -140,9 +141,9 @@ test('the landing card is the Founder Membership: its name, what it supports, it
   const html = read('web', 'pages', 'index.html');
   const card = html.slice(html.indexOf('<article class="plan plan-pro">'), html.indexOf('</article>', html.indexOf('<article class="plan plan-pro">')));
   // Where the price used to be, the line on what the membership supports.
-  assert.match(card, /<header><h3 data-i18n="mem\.fund\.name">Founder Membership<\/h3><p class="price" data-i18n="mem\.fund\.tagline">Supporting the community's growth<\/p><p class="plan-note" data-billing-state hidden><\/p><\/header>/);
+  assert.match(card, /<header><h3 data-i18n="mem\.fund\.name">Founder Membership<\/h3><p class="price" data-i18n="mem\.fund\.tagline">Supporting the community's growth<\/p><p class="plan-note" data-billing-state data-i18n="mem\.fund\.soon">Coming soon<\/p><\/header>/);
   const keys = [...card.matchAll(/data-i18n="(mem\.fund\.[^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(keys, ['mem.fund.flag', 'mem.fund.name', 'mem.fund.tagline', 'mem.fund.connect', 'mem.fund.connectText', 'mem.fund.find', 'mem.fund.findText', 'mem.fund.learn', 'mem.fund.learnText', 'mem.fund.visible', 'mem.fund.visibleText', 'mem.fund.early', 'mem.fund.discount', 'mem.fund.join']);
+  assert.deepEqual(keys, ['mem.fund.flag', 'mem.fund.name', 'mem.fund.tagline', 'mem.fund.soon', 'mem.fund.connect', 'mem.fund.connectText', 'mem.fund.find', 'mem.fund.findText', 'mem.fund.learn', 'mem.fund.learnText', 'mem.fund.visible', 'mem.fund.visibleText', 'mem.fund.early', 'mem.fund.discount', 'mem.fund.join']);
   assert.doesNotMatch(card, /Supporter|Supporting membership|mem\.p\d|mem\.proName|mem\.proCta|data-billing-price|data-billing-split/);
   const es = loadI18n('es'), pt = loadI18n('pt');
   for (const [key, en, esText, ptText] of [
@@ -165,7 +166,7 @@ test('the card ends on its one button, always shown, to the public join page', (
   const html = read('web', 'pages', 'index.html');
   const card = html.slice(html.indexOf('<article class="plan plan-pro">'), html.indexOf('</article>', html.indexOf('<article class="plan plan-pro">')));
   // No hidden attribute: the join page explains the offer in every state, and the terms are one link away from it.
-  assert.match(card, /<\/ul>\s*<a class="btn btn-primary" href="fundadores\.html" data-billing-cta data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>\s*$/);
+  assert.match(card, /<\/ul>\s*<a class="btn btn-primary" href="fundadores\.html" data-billing-cta hidden data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>\s*$/);
   assert.equal((card.match(/<a\b/g) || []).length, 1, 'one way in');
   assert.doesNotMatch(card, /plan-terms|payments\.html|terminos-fundadores/);
   assert.match(read('web', 'pages', 'fundadores.html'), /href="terminos-fundadores\.html"/);
@@ -194,7 +195,7 @@ test('the membership section has three cards: the two ways in unchanged, then on
   const free = card('<article class="plan">');
   assert.deepEqual([...free.matchAll(/data-i18n="([^"]+)"/g)].map((match) => match[1]), ['mem.freeName', 'mem.freePrice', 'mem.f1', 'mem.f2', 'mem.f3', 'mem.f4', 'mem.f5a', 'mem.f5b', 'mem.freeCta']);
   assert.match(free, /<a class="btn btn-ghost-dark" href="login\.html\?next=\/dashboard\.html" data-i18n="mem\.freeCta">Join free<\/a>\s*<\/article>$/);
-  assert.match(card('<article class="plan plan-pro">'), /<a class="btn btn-primary" href="fundadores\.html" data-billing-cta data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>\s*<\/article>$/);
+  assert.match(card('<article class="plan plan-pro">'), /<a class="btn btn-primary" href="fundadores\.html" data-billing-cta hidden data-i18n="mem\.fund\.join">Join Nodal Fundadores<\/a>\s*<\/article>$/);
   const org = card('<article class="plan plan-org">');
   assert.match(org, /^<article class="plan plan-org">\s*<header><h3 data-i18n="mem\.org\.name">NODAL for organizations<\/h3><p class="price" data-i18n="mem\.org\.tagline">Activate a territorial and\/or thematic Node<\/p><\/header>\s*<p class="plan-text" data-i18n="mem\.org\.p">[^<]+<\/p>\s*<a class="btn btn-ghost-dark" id="nodeRequestOpen" href="#nodos" data-i18n="mem\.org\.cta">Contact us<\/a>\s*<\/article>$/);
   assert.doesNotMatch(org, /<ul|data-billing|S\/|US\$|>[^<]*\d/, 'no checklist and no price');

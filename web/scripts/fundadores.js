@@ -20,9 +20,9 @@
       pt: 'A oferta Membresia Fundador 2027 foi encerrada em 31 de dezembro de 2026.',
     },
     soon: {
-      es: 'Las inscripciones abren pronto.',
-      en: 'Sign-ups open soon.',
-      pt: 'As inscrições abrem em breve.',
+      es: 'Próximamente',
+      en: 'Coming soon',
+      pt: 'Em breve',
     },
   };
   // The Spanish text is the team's; any other language the page cannot show reads as it.
@@ -36,7 +36,8 @@
     const state = config && typeof config === 'object' ? config.state : null;
     // The page offers both ways to pay, so it sends people on only while both are on sale; one link alone reads as soon.
     const offered = new Set((Array.isArray(config?.options) ? config.options : []).map((option) => option?.id));
-    if (state === 'open' && offered.has('once') && offered.has('installments')) {
+    if (state === 'open' && config?.checkout === true && config?.paused !== true && offered.has('once') && offered.has('installments')) {
+      document.querySelectorAll('[data-fund-state]').forEach((slot) => { slot.hidden = true; });
       document.querySelectorAll('[data-fund-join]').forEach((link) => { link.hidden = false; });
       return;
     }
@@ -44,8 +45,6 @@
     if (state === 'ended') document.documentElement.dataset.fundEnded = '';
     const lines = LINES[state === 'ended' ? 'ended' : 'soon'];
     document.querySelectorAll('[data-fund-state]').forEach((slot) => {
-      // The line under the title only ever says the offer has closed; "soon" stays where the button would be.
-      if (state !== 'ended' && 'fundEndedOnly' in slot.dataset) return;
       slot.textContent = lines[language(slot.dataset.fundState)];
       slot.hidden = false;
     });
