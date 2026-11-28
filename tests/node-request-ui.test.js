@@ -203,7 +203,7 @@ test('the landing page has a third card that links to #nodos and a dialog with e
   assert.deepEqual([element(thanks, done['aria-describedby']).tag, element(thanks, done['aria-describedby'])['data-i18n']], ['p', 'mem.org.thanks'], 'by the thanks paragraph');
   assert.match(DIALOG, /<a href="privacy\.html"[^>]*data-i18n="nav\.privacy">Privacy policy<\/a>/, 'the privacy line links the policy');
   // The page loads the window's style after the site's and its script after the dictionaries.
-  assert.ok(HTML.indexOf('href="styles.css?v=') < HTML.indexOf('href="node-request.css?v=20261109a"'));
+  assert.ok(HTML.indexOf('href="styles.css?v=') < HTML.indexOf('href="node-request.css?v=20261128c"'));
   assert.ok(HTML.indexOf('src="i18n.js?v=') < HTML.indexOf('<script defer src="node-request.js?v=20261116a"></script>'));
 });
 

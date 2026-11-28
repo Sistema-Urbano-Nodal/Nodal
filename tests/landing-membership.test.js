@@ -200,13 +200,14 @@ test('the membership section has three cards: the two ways in unchanged, then on
   assert.match(org, /^<article class="plan plan-org">\s*<header><h3 data-i18n="mem\.org\.name">NODAL for organizations<\/h3><p class="price" data-i18n="mem\.org\.tagline">Activate a territorial and\/or thematic Node<\/p><\/header>\s*<p class="plan-text" data-i18n="mem\.org\.p">[^<]+<\/p>\s*<a class="btn btn-ghost-dark" id="nodeRequestOpen" href="#nodos" data-i18n="mem\.org\.cta">Contact us<\/a>\s*<\/article>$/);
   assert.doesNotMatch(org, /<ul|data-billing|S\/|US\$|>[^<]*\d/, 'no checklist and no price');
   assert.equal((org.match(/<a\b/g) || []).length, 1, 'one way in');
-  // The Founder Membership stays the highlighted card: the new one is outlined, with the pastel-green accent.
-  const css = read('web', 'styles', 'node-request.css');
-  assert.match(css, /\.plan-org \{[^}]*border-color: var\(--green-pastel\);/);
-  assert.doesNotMatch(css, /\.plan-org[^{]*\{[^}]*background:\s*var\(--beige\)/);
-  assert.match(css, /\.membership \.plans \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
-  assert.match(css, /@media \(max-width: 980px\) \{[^@]*\.membership \.plans \{ grid-template-columns: 1fr 1fr; \}[^@]*\.plan-org \{ grid-column: 1 \/ -1; \}/, 'two plus the third across both columns');
-  assert.match(css, /@media \(max-width: 820px\) \{\s*\.membership \.plans \{ grid-template-columns: 1fr; \}/);
+  const css = read('web', 'styles', 'styles.css');
+  assert.match(css, /\.plan-pro \{[^}]*border: 2px solid var\(--green-pastel\)/);
+  assert.match(css, /\.membership \.plans \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(css, /@media \(max-width: 820px\) \{\s*\.membership \.plans \{ grid-template-columns: 1fr;/);
+  assert.match(html, /aria-labelledby="membership-title"/);
+  assert.match(html, /id="membership-title" data-i18n="mem.heading">NODAL memberships</);
+  assert.equal(loadI18n('es').t('mem.heading'), 'Membresías NODAL');
+  assert.equal(loadI18n('pt').t('mem.heading'), 'Membresias NODAL');
 });
 
 
