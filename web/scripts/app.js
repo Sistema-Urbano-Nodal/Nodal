@@ -28,7 +28,10 @@
   function renderMembershipNote() {
     const note = document.querySelector('[data-billing-state]');
     if (!note) return;
-    const key = !billingRead ? '' : billing?.state === 'ended' ? 'mem.fund.ended' : billing?.checkout === true ? '' : 'mem.fund.soon';
+    const open = billingRead && billing?.state !== 'ended' && billing?.paused !== true && billing?.checkout === true;
+    const key = billing?.state === 'ended' ? 'mem.fund.ended' : open ? '' : 'mem.fund.soon';
+    const link = document.querySelector('[data-billing-cta]');
+    if (link) link.hidden = !open;
     note.textContent = key ? t(key) : '';
     note.hidden = !key;
   }

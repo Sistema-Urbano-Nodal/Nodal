@@ -186,7 +186,7 @@ test('an offer that ended meanwhile shows the closed offer, and a signed-out mem
  assert.equal(ended.nodes.payClosed.textContent,'en:y.fund.ended');assert.deepEqual(ended.assigned,[]);
  // The purchase box held the focused button and the live region: the closed message is itself a status, and takes the focus.
  assert.equal(ended.focused(),'payClosed');
- assert.match(html,/<p class="pay-closed" id="payClosed" role="status" tabindex="-1"><\/p>/);
+ assert.match(html,/<p class="pay-closed" id="payClosed" role="status" tabindex="-1" data-i18n="y\.fund\.soon">Coming soon<\/p>/);
  const out=await page({answers:[{status:401,data:{error:'authentication required'}}]});
  out.choose('once');out.tickAll();await out.submit();await flush();
  assert.deepEqual(out.assigned,['/login.html?next=%2Fpayments.html']);
@@ -337,7 +337,7 @@ test('in Spanish the authorizations read as the terms’ section 3 with the amou
  p.choose('once');assert.equal(n.payPaymentText.textContent,'Autorizo el cobro de S/\u00a0499, incluido IGV, por mi Membresía Fundador 2027.');
  p.choose('installments');
  assert.equal(n.payPaymentText.textContent,'Autorizo dos cobros de S/\u00a0275 cada uno, por un total de S/\u00a0550, incluido IGV: el primero al inscribirme y el segundo automáticamente dos meses calendario después de la fecha de aprobación del primer pago. Si el mes de destino no tiene el día correspondiente, el segundo pago vencerá el último día de ese mes.');
- for(const [key,es] of [['y.fund.soon','Las inscripciones abren pronto.'],['y.fund.ended','La oferta Membresía Fundador 2027 cerró el 31 de diciembre de 2026.'],['y.fund.continue','Continuar a Mercado Pago'],
+ for(const [key,es] of [['y.fund.soon','Próximamente'],['y.fund.ended','La oferta Membresía Fundador 2027 cerró el 31 de diciembre de 2026.'],['y.fund.continue','Continuar a Mercado Pago'],
   // What happens after paying: the benefits count from approval (terms §4 and §8), with no other deadline.
   ['y.fund.next','Tus beneficios cuentan desde la aprobación de tu pago. El equipo de NODAL activa tu membresía y te escribe al correo de tu cuenta de NODAL.'],
   // Mercado Pago's notice is not a SUNAT comprobante: the seller issues the boleta for each sale.

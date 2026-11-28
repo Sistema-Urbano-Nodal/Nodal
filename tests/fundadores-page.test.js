@@ -90,7 +90,7 @@ const LINKS = {
 };
 const TITLES = {es: 'Nodal Fundadores · Membresía Fundador 2027', en: 'Nodal Fundadores · Founder Membership 2027', pt: 'Nodal Fundadores · Membresia Fundador 2027'};
 const ENDED = {es: 'La oferta Membresía Fundador 2027 cerró el 31 de diciembre de 2026.', en: 'The Founder Membership 2027 offer closed on 31 December 2026.', pt: 'A oferta Membresia Fundador 2027 foi encerrada em 31 de dezembro de 2026.'};
-const SOON = {es: 'Las inscripciones abren pronto.', en: 'Sign-ups open soon.', pt: 'As inscrições abrem em breve.'};
+const SOON = {es: 'Próximamente', en: 'Coming soon', pt: 'Em breve'};
 
 test('the Spanish page is the team’s text, every heading and paragraph word for word and in its order', () => {
   const html = read(PAGE);
@@ -186,7 +186,7 @@ async function run({lang = 'es', answer, i18n = true} = {}) {
   const node = extra => ({hidden: true, removed: false, textContent: '', dataset: {}, ...extra, remove() { this.removed = true; }});
   const joins = LANGS.map(() => node({}));
   // Per language: the line under the title (only for a closed offer) and the one in the closing band.
-  const states = LANGS.flatMap(language => [node({dataset: {fundState: language, fundEndedOnly: ''}}), node({dataset: {fundState: language}})]);
+  const states = LANGS.flatMap(language => [0, 1].map(() => node({hidden:false, textContent:SOON[language], dataset:{fundState:language}})));
   const listeners = [], requests = [];
   const document = {
     documentElement: {lang, dataset: {}},
@@ -205,7 +205,7 @@ async function run({lang = 'es', answer, i18n = true} = {}) {
 }
 const json = payload => async () => ({ok: true, status: 200, async json() { return payload; }});
 const NOW = Date.parse('2026-10-22T15:00:00.000Z'), AFTER = Date.parse('2027-01-01T05:00:00.000Z');
-const OPEN_ENV = {MERCADOPAGO_LINK_ANNUAL: 'https://link.mercadopago.com.pe/nodal', MERCADOPAGO_LINK_INSTALLMENTS: 'https://www.mercadopago.com.pe/subscriptions/checkout?preapproval_plan_id=2c93', MEMBERSHIP_CONTACT_EMAIL: 'membresias@nodal.example', MEMBERSHIP_COMPLAINTS_URL: 'https://reclamos.example/nodal'};
+const OPEN_ENV = {MERCADOPAGO_CHECKOUT_ENABLED:'true', MERCADOPAGO_LINK_ANNUAL: 'https://link.mercadopago.com.pe/nodal', MERCADOPAGO_LINK_INSTALLMENTS: 'https://www.mercadopago.com.pe/subscriptions/checkout?preapproval_plan_id=2c93', MEMBERSHIP_CONTACT_EMAIL: 'membresias@nodal.example', MEMBERSHIP_COMPLAINTS_URL: 'https://reclamos.example/nodal'};
 // The server's own answers, so a change to their shape shows up here.
 const SERVER = {open: publicBillingConfig(OPEN_ENV, NOW), soon: publicBillingConfig({}, NOW), ended: publicBillingConfig(OPEN_ENV, AFTER)};
 
@@ -217,7 +217,7 @@ test('while sign-ups are open the button to the payments page appears, and nothi
   const page = await run({answer: json(SERVER.open)});
   assert.deepEqual(page.requests, [{path: '/api/billing/config', method: 'GET', accept: 'application/json'}]);
   for (const link of page.joins) { assert.equal(link.removed, false); assert.equal(link.hidden, false); }
-  for (const slot of page.states) { assert.equal(slot.hidden, true); assert.equal(slot.textContent, ''); }
+  for (const slot of page.states) { assert.equal(slot.hidden, true); }
   assert.equal('fundEnded' in page.document.documentElement.dataset, false, 'the 2026 sections stay');
 });
 
@@ -257,19 +257,18 @@ test('before sign-ups open, without an answer, or on static hosting, there is no
     for (const link of page.joins) assert.equal(link.removed, true, `${name}: a closed checkout leads nowhere`);
     // "Sign-ups open soon" belongs where the button would be; the line under the title waits for a closed offer.
     for (const slot of page.states) {
-      const top = 'fundEndedOnly' in slot.dataset;
-      assert.equal(slot.textContent, top ? '' : SOON[slot.dataset.fundState], `${name} ${slot.dataset.fundState}`);
-      assert.equal(slot.hidden, top, name);
+      assert.equal(slot.textContent, SOON[slot.dataset.fundState], `${name} ${slot.dataset.fundState}`);
+      assert.equal(slot.hidden, false, name);
     }
     assert.equal('fundEnded' in page.document.documentElement.dataset, false, `${name}: nothing has ended`);
   }
 });
 
-test('while the settings are on their way nothing shows: no button, no line', async () => {
+test('while availability loads, the pause message remains visible and the payment button stays hidden', async () => {
   let respond;
   const page = await run({answer: () => new Promise(resolve => { respond = resolve; })});
   for (const link of page.joins) { assert.equal(link.removed, false); assert.equal(link.hidden, true); }
-  for (const slot of page.states) assert.equal(slot.hidden, true);
+  for (const slot of page.states) assert.equal(slot.hidden, false);
   respond({ok: true, status: 200, async json() { return SERVER.open; }});
   for (let i = 0; i < 10; i += 1) await new Promise(resolve => setImmediate(resolve));
   for (const link of page.joins) assert.equal(link.hidden, false);
@@ -293,10 +292,10 @@ test('the script writes text, never markup', () => {
   assert.match(js, /textContent/);
 });
 
-test('the button and the lines ship hidden in every language, and the terms link is always there', () => {
+test('each language ships the pause message and terms link with the pay button hidden', () => {
   const html = read(PAGE);
   for (const lang of LANGS) {
-    const part = block(html, lang), line = `<p class="fund-state" data-fund-state="${lang}" hidden></p>`, top = `<p class="fund-state" data-fund-state="${lang}" data-fund-ended-only hidden></p>`;
+    const part = block(html, lang), line = `<p class="fund-state" data-fund-state="${lang}">${SOON[lang]}</p>`, top = line;
     assert.match(part, /<a class="btn btn-primary btn-lg" href="payments\.html" data-fund-join hidden>[^<]+<\/a>/, `${lang} button`);
     // One line under the title, so a closed offer says so first, and one where the button would be.
     assert.equal(part.split('data-fund-state=').length - 1, 2, `${lang} two lines`);
@@ -315,7 +314,7 @@ test('the page works under the strict CSP: no inline script, style or handler, a
   assert.doesNotMatch(html, /<style\b|\sstyle="|\son[a-z]+=|javascript:/i);
   const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
   const i18n = read('web/pages/index.html').match(/src="i18n\.js\?v=([^"]+)"/)[1];
-  assert.deepEqual(scripts.map(([, attributes]) => attributes.trim()), ['src="locale.js?v=20261009a"', 'defer src="nav.js?v=20261116a"', `defer src="i18n.js?v=${i18n}"`, 'defer src="fundadores.js?v=20261029a"', 'defer src="overview-return.js?v=20261123h"', 'defer src="visit.js?v=20261114b"']);
+  assert.deepEqual(scripts.map(([, attributes]) => attributes.trim()), ['src="locale.js?v=20261009a"', 'defer src="nav.js?v=20261116a"', `defer src="i18n.js?v=${i18n}"`, 'defer src="fundadores.js?v=20261128p"', 'defer src="overview-return.js?v=20261123h"', 'defer src="visit.js?v=20261114b"']);
   assert.ok(scripts.every(([, , body]) => body === ''), 'no inline script');
   assert.ok(html.lastIndexOf('<script') < html.indexOf('</head>'));
   const sheets = [...html.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map(match => match[1]);

@@ -552,18 +552,19 @@ seller come from the terms version in `server/membership-offer.js`
 (`FUNDADORES-2027-v1`), never from settings: a price change is a new terms
 version.
 
+Mercado Pago checkout is paused for the MVP. Keep `MERCADOPAGO_CHECKOUT_ENABLED` unset or false. To reopen on request, set it to `true` in Production and redeploy. The dates, contact and payment-link checks still apply. [Payment operations](docs/supporter-payments.md)
+
 `GET /api/billing/config` answers `state`:
 
-- `open` (`checkout: true`): from 21 Oct 2026 00:00 Lima, when the terms take
+- `open` (`checkout: true`): with the launch flag enabled, from 21 Oct 2026 00:00 Lima, when the terms take
   effect (`effectiveFromAt`), until 1 Jan 2027 00:00 Lima, with at least one
   option whose link is an `https` Mercado Pago Peru address (`mercadopago.com.pe`
   or a subdomain, `mpago.la`, `mpago.li`) **and** a valid `MEMBERSHIP_CONTACT_EMAIL`.
   Only the options with a link are listed, and never the links themselves: a
   member gets a link only from `POST /api/membership/acceptances`, after their
   acceptances are recorded.
-- `soon` (`checkout: false`, no options): an option or the contact is missing, or
-  the terms have not taken effect yet. The course pilot keeps redirecting
-  `/payments.html` to the courses page.
+- `soon` (`checkout: false`, no options): checkout is paused for launch, the
+  configured links or contact are unavailable, or the terms have not taken effect yet.
 - `ended` (`checkout: false`): from 1 Jan 2027 00:00 Lima, whatever is set. The
   payments page opens and says the offer has closed.
 

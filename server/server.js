@@ -453,10 +453,11 @@ function membershipContact(env) {
   // the pages once Sistema Urbano's book exists (null until then).
   return email ? { email, complaintsUrl: complaints } : null;
 }
-/* 'ended' from endsAt on, whatever is set; 'open' from the terms' effective date until then, with an option and the
-   contact; 'soon' otherwise, before that date too. options are the ones a member may accept now. */
+// Retain the merchant links while sales are paused. Reading the offer and accepting it share this gate.
 function membershipState(env, at) {
-  const contact = membershipContact(env), options = paymentOptions(env);
+  const contact = membershipContact(env);
+  if (env.MERCADOPAGO_CHECKOUT_ENABLED !== 'true') return { state: 'paused', contact, options: [] };
+  const options = paymentOptions(env);
   const state = at >= OFFER_ENDS_AT ? 'ended' : at >= OFFER_STARTS_AT && options.length && contact ? 'open' : 'soon';
   return { state, contact, options: state === 'open' ? options : [] };
 }
@@ -464,6 +465,7 @@ function membershipState(env, at) {
 // The pages read state, checkout, offer, options (with their amounts) and contact; nothing else is sent.
 export function publicBillingConfig(env = process.env, at = Date.now()) {
   const { state, contact, options } = membershipState(env, at);
+  if (state === 'paused') return { checkout: false, state: 'soon', paused: true, offer: OFFER_VIEW, options: [], contact };
   if (state !== 'open') return { checkout: false, state, offer: OFFER_VIEW, options: [], contact };
   return { checkout: true, state, offer: OFFER_VIEW, options: options.map(({ id }) => OPTION_VIEWS[id]), contact };
 }
@@ -1540,7 +1542,7 @@ export function createApp({
           send(res, 403, { error: 'administrator access required' });
           return;
         }
-        // The course pilot keeps the payments page closed while the membership is 'soon'; once ended it says so.
+        // During a manual pause members can read the Soon message on the payments page.
         if(pilotMode && canonical==='/payments.html' && membershipState(billingEnv, now()).state === 'soon') { redirect(res,'/courses.html');return; }
         if (useDb && canonical === '/login.html' && sessionUser) {
           /* A confirmation link opens sign-in with the new account's tokens in its fragment, and a Location without one

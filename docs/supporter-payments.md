@@ -1,5 +1,9 @@
 # Founder Membership payments (Mercado Pago links)
 
+**MVP launch hold, 28 November 2026.** New Mercado Pago purchases through NODAL are paused. The server requires an explicit `MERCADOPAGO_CHECKOUT_ENABLED=true` before it can record a new acceptance or release a payment link. Leave the flag unset or false until the team requests reopening. Both merchant links can stay configured. Previously distributed links and existing subscriptions are managed in the seller's Mercado Pago account.
+
+At reopening, confirm the offer is still within its published dates, set the production flag to `true` and redeploy. Check that the public billing configuration lists the intended options. To pause again, set the flag to `false` and redeploy.
+
 The **Founder Membership 2027** (*Membresía Fundador 2027* in Spanish, *Membresia Fundador 2027* in Portuguese) is NODAL's paid annual membership. Its commercial terms are at `/terminos-fundadores.html` (version `FUNDADORES-2027-v1`, source text in [membership/terminos-fundadores-2027.md](membership/terminos-fundadores-2027.md)). This routine follows them. "Section 7" and the like are sections of the terms.
 
 - **Pago único:** S/ 499, through a Mercado Pago payment link.
