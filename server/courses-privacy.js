@@ -35,7 +35,7 @@ export async function assertCourseDataDeletable(store,userId,{now=Date.now()}={}
   if((await store.find('attachments',{userId,status:'pending'},{limit:1})).length)awaitingReconciliation();
 }
 
-export async function deleteCourseData(store,userId,{now=Date.now()}={}) {
+export async function prepareCourseAccountDeletion(store,userId,{now=Date.now()}={}) {
   await assertCourseDataDeletable(store,userId,{now});
   const member=(await store.getMembers([userId]))[0];
   if(member?.email)await store.remove('invitations',{email:member.email.toLowerCase()});
@@ -62,6 +62,12 @@ export async function deleteCourseData(store,userId,{now=Date.now()}={}) {
   }
   // Keep a tombstone for replies without retaining the departing person's content.
   await store.update('posts',{userId},{body:'',links:[],attachmentIds:[],authorName:'',staff:false,deletedAt:new Date().toISOString()});
+}
+
+// A course-only erasure must remove these rows itself. Account erasure leaves them for the same database
+// transaction that deletes the member, so a failed account deletion preserves training enrollment and receipts.
+export async function deleteCourseData(store,userId,options) {
+  await prepareCourseAccountDeletion(store,userId,options);
   for(const name of ['enrollments','intakes','feedback','events','surveys'])await store.remove(name,{userId});
 }
 import {fail} from './courses-domain.js';

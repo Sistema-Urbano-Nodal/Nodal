@@ -327,6 +327,12 @@ Before releasing the notification bell, apply `supabase/migrations/2026111923265
 
 For news and featured opportunities in the bell, apply `supabase/migrations/20261124030000_editorial_bell.sql` after the publication email migrations and record version `20261124030000`. A new public editorial event becomes visible to existing members regardless of email subscription. Opening a notice clears it for that member. The chat-only notification RPC remains available to older clients.
 
+### Founder training benefits for 2027
+
+Before releasing the training flow, apply `supabase/migrations/20261128193756_training_benefits_2027.sql` using the single-file SQL Migration Steps and record version `20261128193756`. Existing accounts start without a verified training term. On the Founders tab of the publishing desk, look up the member and activate the training term after reconciling the first approved payment and terms acceptance. Record suspension only after any applicable grace period. The permanent badge and a 2026 pilot seat are separate from this term.
+
+In the teaching workspace, create a 2027 activity in draft, open its setup and save its type, eligibility, capacity and prices in soles before publishing and opening registration. Members claim places from Courses. A paid additional reservation keeps the quoted fee and holds one place. The member can release a pending reservation. Staff can verify an independently received payment against that exact reservation and amount from the activity setup. No action in this flow initiates a Mercado Pago charge.
+
 ### Optional private-message emails
 
 Before deploying the inbox preference and sender, apply `supabase/migrations/20261128145110_private_message_email_alerts.sql` using the single-file SQL Migration Steps and record version `20261128145110`. The service role needs access to the new preferences, outbox and delivery functions. Members opt in from Messages. The queue starts empty, including for people who already have unread messages.
@@ -748,8 +754,8 @@ npm start
 
 1. Confirm `.env`, `.env.local`, `.env.production`, `.vercel/`, and `data/` are not committed.
 2. Apply every pending Supabase migration (every file in the release sections
-   above, most recently `20261128145110_private_message_email_alerts.sql` under
-   "Optional private-message emails", before pushing `main`) one file
+   above, most recently `20261128193756_training_benefits_2027.sql` under
+   "Founder training benefits for 2027", before pushing `main`) one file
    at a time as described in "SQL Migration Steps" (never `supabase db push`
    against production) and confirm them.
 3. Configure Vercel environment variables.

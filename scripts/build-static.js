@@ -48,15 +48,19 @@ const STATIC_SCRIPTS = [
   'hero-network.js',
   'node-request.js',
   'teaching.js',
+  'training.js',
+  'training-admin.js',
   'visit.js',
   'admin-nav.js',
   'admin-home.js',
 ];
-const STATIC_STYLES = ['fiiu.css', 'fiiu-talk.css', 'auth.css', 'admin.css', 'catalog.css', 'courses.css', 'dashboard.css', 'messages.css', 'workspace-notifications.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css', 'admin-home.css'];
+const STATIC_STYLES = ['fiiu.css', 'fiiu-talk.css', 'auth.css', 'admin.css', 'catalog.css', 'courses.css', 'training-detail.css', 'dashboard.css', 'messages.css', 'workspace-notifications.css', 'styles.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css', 'admin-home.css'];
 const STATIC_ASSETS = [
   'latam-map.webp',
   'nodal-community.webp',
   'nodal-wordmark.webp',
+  'training-city.webp',
+  'training-city-684.webp',
 ];
 // Delivered emails keep using these URLs. Publish revised artwork under a new name.
 const STATIC_EMAIL_ASSETS = ['nodal-lockup.png', 'nodal-lockup-dark.png', 'nodal-network-map-v1.png'];

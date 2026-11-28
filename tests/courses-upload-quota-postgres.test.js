@@ -4,6 +4,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {randomUUID} from 'node:crypto';
 import {readdir} from 'node:fs/promises';
+import {postgresTraining} from './helpers/training-postgres.js';
 
 // Opt-in only: supply an EMPTY disposable local database named
 // nodal_course_quota_test_<suffix>. The test installs migrations and fixtures.
@@ -52,6 +53,7 @@ test('PostgreSQL quota serializes RPC and legacy INSERT at READ COMMITTED and RE
   }
   await assert.rejects(sql(`UPDATE course_enrollments SET access_basis='unrecognized' WHERE id='${seat}'`),error=>error.stderr.includes('23514'));
  });
+ await t.test('2027 training reserves the last place and each allowance atomically across service-role connections',()=>postgresTraining({sql,apply}));
  const waitFor=async query=>{
   const deadline=Date.now()+10000;
   do {const value=await sql(query);if(value)return value;await new Promise(resolve=>setTimeout(resolve,20));}while(Date.now()<deadline);

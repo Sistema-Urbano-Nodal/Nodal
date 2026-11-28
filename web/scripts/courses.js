@@ -10,7 +10,7 @@ window.addEventListener?.('pagehide',()=>{pageActive=false;conversations.forEach
 window.addEventListener?.('pageshow',()=>{pageActive=true;conversations.forEach(view=>view.resume());});
 const base=()=>'/api/courses/'+encodeURIComponent(courseId);
 function textSection(key,record){const section=el('section');section.append(tr('h3',key),source('p',record,key));return section;}
-function dates(c){return [date(c.startsOn),date(c.endsOn)].filter(Boolean).join(' – ');}
+function dates(c){return [...new Set([c.startsOn,c.endsOn].filter(Boolean))].map(date).join(' – ');}
 /* The NODAL topics a course is about, read from its title in any of its languages ("Curso Movilidad Nivel 2" is Mobility), in the console's topic order:
    they pick the course's readings from BUC (buc.js) and the suggestions under its discussions. Courses carry no topic of their own. */
 const COURSE_TOPICS=[['Mobility',/\b(?:movilidad|mobility|mobilidade)\b/],['Public space',/\b(?:espacios? publicos?|public spaces?|espacos? publicos?)\b/],['Housing',/\b(?:viviendas?|housing|habitacao|moradias?)\b/],
@@ -37,7 +37,35 @@ function supportersNote(){
 }
 // One label per card: where this viewer stands on the course. Staff see only whether it is closed, as before.
 const cardLabel=(c,staff)=>staff?(c.enrollmentOpen===false?'closed':''):c.enrolled?'enrolledTag':c.join==='fiiu'?'fiiuTag':c.join==='supporters'?'supportersOnly':c.enrollmentOpen===false?'closed':'';
-async function directory(){setPageTitle('courses');const {courses,isAdmin}=await api('/api/courses');document.getElementById('teachingLink').hidden=isAdmin!==true;root.replaceChildren();const hero=el('header','pilot-hero');hero.append(tr('p','courses','pilot-context'),tr('h1','intro'),tr('p','directory'));const list=el('div','pilot-directory');if(!courses.length)list.append(tr('p','emptyCourses','pilot-empty'));courses.forEach(c=>{const row=el('article','pilot-course-row'),meta=el('div'),content=el('div'),label=cardLabel(c,isAdmin===true);meta.append(tr('span',c.status,'pilot-tag'),dynamic('div',()=>dates(c),'pilot-date'));if(label)meta.append(tr('div',label,'pilot-date'));content.append(source('h2',c,'title'),source('p',c,'description'));const link=tr('a','open','pilot-button');link.href='course.html?id='+encodeURIComponent(c.id);row.append(meta,content,link);list.append(row);});root.append(hero,list);status(msg,'');}
+async function directory() {
+  setPageTitle('courses');
+  const {courses,isAdmin,training}=await api('/api/courses');
+  document.getElementById('teachingLink').hidden=isAdmin!==true;
+  if(window.nodalTraining&&!isAdmin){
+    setPageTitle(()=>window.nodalTraining.text('directoryTitle'));
+    await window.nodalTraining.catalogue(root,courses,training,c=>cardLabel(c,false));
+    status(msg,'');
+    return;
+  }
+  const hero=el('header','pilot-hero');
+  if(window.nodalTraining&&courses.some(c=>c.trainingConfigured)){
+    setPageTitle(()=>window.nodalTraining.text('directoryTitle'));
+    hero.append(window.nodalTraining.label('h1','directoryTitle'));
+  }else hero.append(tr('p','courses','pilot-context'),tr('h1','intro'),tr('p','directory'));
+  const list=el('div','pilot-directory');
+  if(!courses.length)list.append(tr('p','emptyCourses','pilot-empty'));
+  for(const c of courses){
+    const row=el('article','pilot-course-row'),meta=el('div'),content=el('div');
+    const label=cardLabel(c,isAdmin===true);
+    meta.append(tr('span',c.status,'pilot-tag'),dynamic('div',()=>dates(c),'pilot-date'));
+    if(label)meta.append(tr('div',label,'pilot-date'));
+    content.append(source('h2',c,'title'),source('p',c,'description'));
+    const link=tr('a','open','pilot-button');
+    link.href='course.html?id='+encodeURIComponent(c.id);
+    row.append(meta,content,link);list.append(row);
+  }
+  root.replaceChildren(hero,list);status(msg,'');
+}
 // course() draws the page again after a save, so the confirmation goes to the status line above the course title, brought
 // into view, and focus to a real element instead of <body>. A session that failed to open keeps its error there.
 function confirmSaved(key,target){if(!msg.textContent)status(msg,t(key));msg.scrollIntoView({block:'start'});target?.focus({preventScroll:true});}
@@ -47,13 +75,35 @@ async function course(fresh){
   stopConversations();navigationSequence++;navigationPending=false;pendingModuleId=null;snapshot=fresh;root.replaceChildren();
   document.getElementById('teachingLink').hidden=!snapshot.isAdmin;
   const c=snapshot.course;setPageTitle(()=>localized(c,'title'));
-  const hero=el('header','pilot-hero pilot-course-hero'),back=tr('a','courses');back.href='courses.html';
+  const hero=el('header','pilot-hero pilot-course-hero');
+  const back=snapshot.trainingConfigured&&window.nodalTraining?window.nodalTraining.label('a','directoryTitle'):tr('a','courses');back.href='courses.html';
   const metadata=el('div','pilot-course-meta');metadata.append(back,dynamic('span',()=>dates(c),'pilot-date'));
   const title=source('h1',c,'title');title.id='courseTitle';title.tabIndex=-1;
-  hero.append(metadata,title,source('p',c,'description'));root.append(hero);status(msg,'');
+  const trainingDetail=snapshot.trainingConfigured&&!snapshot.isAdmin;
+  const intro=trainingDetail?el('div','training-detail-intro'):root;
+  if(trainingDetail)root.append(intro);
+  hero.append(metadata,title,source('p',c,'description'));intro.append(hero);status(msg,'');
   // Readings from BUC (buc.js) for the course's topic, right under its header; a course whose title names no topic has none.
   const topics=courseTopics(c);
   if(topics.length&&window.Buc){const readings=el('section','pilot-buc');readings.hidden=true;root.append(readings);window.Buc.mount(readings,{topics,context:'course',limit:3,heading:tr('h2','bucReadings')});}
+  if(trainingDetail){
+    const section=el('section','training-booking');intro.append(section);
+    if(!window.nodalTraining){status(msg,t('error'));renderRoutePreview();return;}
+    let state;
+    try {state=await window.nodalTraining.read(courseId);}
+    catch {window.nodalTraining.failed(section,()=>course());renderRoutePreview();return;}
+    if(!state.offering){window.nodalTraining.failed(section,()=>course());renderRoutePreview();return;}
+    const kind=window.nodalTraining.label('span',state.offering.kind,'training-detail-kind');
+    metadata.append(kind);
+    window.nodalTraining.detail(section,state,courseId,async confirmed=>{
+      await course();
+      if(confirmed){
+        bind(msg,()=>{msg.textContent=window.nodalTraining.text('enrolled');});
+        document.getElementById('courseTitle')?.focus({preventScroll:true});
+      }
+    });
+    if(!snapshot.enrollment||!state.canAccess){renderRoutePreview();return;}
+  }
   if(!snapshot.enrollment&&!snapshot.isAdmin){
     const fiiu=snapshot.join==='fiiu',reminderLink=new URLSearchParams(location.search).get('encuesta')==='1';
     // Closed courses keep their route preview but offer no way in, except the perk course to a FIIU Fest 11 registrant

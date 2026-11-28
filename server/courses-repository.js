@@ -3,6 +3,7 @@ import { createSupabaseClients, unavailableError } from './supabase.js';
 import { randomUUID } from 'node:crypto';
 import { fail, identifier } from './courses-domain.js';
 import { createObjectStorage } from './object-storage.js';
+import { createTrainingStore } from './training-store.js';
 
 const BUCKET = 'course-attachments';
 const uploadAllowanceReached = () => fail('course upload allowance reached; use a link instead',413);
@@ -102,6 +103,7 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
     };
     return {
       kind: 'sqlite',
+      createTrainingStore: () => createTrainingStore({db}),
       async getPostAttachments({ids,courseId,moduleId}) {
         const unique=postAttachmentIds(ids);if(!unique.length)return [];
         return db.prepare(`SELECT * FROM course_attachments WHERE course_id=? AND module_id=? AND status='ready' AND id IN (${unique.map(()=>'?').join(',')})`).all(courseId,moduleId,...unique).map(row=>fromRow(tableInfo('attachments'),row));
@@ -201,6 +203,7 @@ export function createCourseStore({ db, env = process.env, fetchImpl = fetch, cl
   const objects = createObjectStorage({env:supa.env,fetchImpl,bucket:BUCKET});
   return {
     kind:'supabase',
+    createTrainingStore: () => createTrainingStore({clients:supa}),
     async getPostAttachments({ids,courseId,moduleId}) {
       const unique=[...new Set(postAttachmentIds(ids).map(id=>id.toLowerCase()))];if(!unique.length)return [];
       const info=tableInfo('attachments'),query=queryFor(info,{courseId,moduleId,status:'ready'},{limit:unique.length,order:['id']});

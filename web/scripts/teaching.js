@@ -186,7 +186,7 @@ function responseView(records,courseId,context=new Map()){
   section.append(heading,controls,results,tr('p','limitNote','pilot-data-note'));render();return section;
 }
 
-function participantView(data,id,version,notice,onRefresh,closed=false,supporters=false){
+function participantView(data,id,version,notice,onRefresh,closed=false,supporters=false,training=false){
   const section=el('section'),heading=el('div','pilot-section-heading');
   heading.append(tr('h2','participants'),csvLink(id,'participants','downloadParticipants'));
   section.append(heading);
@@ -235,7 +235,8 @@ function participantView(data,id,version,notice,onRefresh,closed=false,supporter
   // A closed course admits no one: staff reopen Enrollment open in Course setup. The Supporter course, closed to the public,
   // still takes each Supporter the team adds by hand once their Mercado Pago payment is in (docs/supporter-payments.md).
   if(supporters)section.append(tr('p','participantsSupporters','pilot-data-note'));
-  section.append(closed?tr('div','participantsClosed','pilot-participant-add'):add,local);
+  const addControl = closed ? tr('div','participantsClosed','pilot-participant-add') : add;
+  section.append(training ? window.nodalTrainingAdmin.participantNote() : addControl, local);
   const invitations=(data.invitations||[]).filter(item=>!item.acceptedAt);
   if(invitations.length){
     const pending=el('section','pilot-invitations');pending.append(tr('h3','pendingInvitations'),tr('p','invitationIntakeNote','pilot-data-note'));
@@ -526,11 +527,13 @@ function courseCertificateView(course,version,onIssued){
   return {element:pane,open};
 }
 
-function setupView(course,modules,id,onCourseSaved,septemberTick=false){
+function setupView(course,modules,id,onCourseSaved,septemberTick=false,onConfigured){
   const pane=el('section','pilot-setup');
   const courseDetails=el('details','pilot-editor-section');
   courseDetails.append(tr('summary','courseSetup'),makeEditor(course,false,null,onCourseSaved));
-  pane.append(courseDetails,tr('h2','sessions'));
+  pane.append(courseDetails);
+  if(window.nodalTrainingAdmin) pane.append(window.nodalTrainingAdmin.coursePanel(course,dirty,onConfigured));
+  pane.append(tr('h2','sessions'));
   function moduleEditor(initial=null){
     const details=el('details','pilot-editor-section'),summary=el('summary');
     let current=initial,created=false;
@@ -552,7 +555,7 @@ function setupView(course,modules,id,onCourseSaved,septemberTick=false){
 async function showCourse(id,selected='responses',participantNotice=null){
   const version=++selectionVersion;selectedId=id;status(msg,t('loading'));
   try{
-    const [{course,modules,finalSurvey,perkCourse},data]=await Promise.all([api('/api/courses/'+id),api(endpoint(id)+'/report')]);
+    const [{course,modules,finalSurvey,perkCourse,trainingConfigured},data]=await Promise.all([api('/api/courses/'+id),api(endpoint(id)+'/report')]);
     if(version!==selectionVersion)return;
     workspace.replaceChildren();dirty.clear();
     const header=el('header','pilot-teaching-course');
@@ -561,7 +564,7 @@ async function showCourse(id,selected='responses',participantNotice=null){
     const tabs=el('div','pilot-tabs');tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label',t('teaching'));
     tabs.dataset.pilotAria='teaching';
     const closedToAll=()=>course.enrollmentOpen===false&&perkCourse!==true,supportersOnly=()=>course.enrollmentOpen===false&&perkCourse===true;
-    let paneClosed=closedToAll(),paneSupporters=supportersOnly();
+    let paneClosed=closedToAll(),paneSupporters=supportersOnly(),training=Boolean(trainingConfigured);
     const updateCourse=async saved=>{
       Object.assign(course,saved);
       title.replaceChildren(courseState(course,'pilot-tag'),source('h2',course,'title'));
@@ -569,13 +572,18 @@ async function showCourse(id,selected='responses',participantNotice=null){
       await refreshList(false);
       if(closedToAll()!==paneClosed||supportersOnly()!==paneSupporters)await refreshParticipants();
     };
+    function onTrainingConfigured() {
+      if (training) return;
+      training = true;
+      refreshParticipants();
+    }
     let activity=activityView(data,id);
     async function refreshParticipants(notice){
       try{
         const fresh=await api(endpoint(id)+'/report');
         if(version!==selectionVersion||selectedId!==id)return;
         paneClosed=closedToAll();paneSupporters=supportersOnly();
-        const previous=panes.participants,next=participantView(fresh,id,version,notice,refreshParticipants,paneClosed,paneSupporters);
+        const previous=panes.participants,next=participantView(fresh,id,version,notice,refreshParticipants,paneClosed,paneSupporters,training);
         next.id=previous.id;next.setAttribute('role','tabpanel');next.setAttribute('aria-labelledby','staff-tab-participants');next.hidden=previous.hidden;
         previous.replaceWith(next);panes.participants=next;
         const active=document.activeElement;if(notice&&!next.hidden&&(!active||active===document.body))next.focusEmail?.();
@@ -586,7 +594,7 @@ async function showCourse(id,selected='responses',participantNotice=null){
     // The course page sends finalSurvey only for the one course that has the survey, so only that course gets the tab.
     const survey=finalSurvey?finalSurveyView(id,version):null;
     const certificates=courseCertificateView(course,version,()=>survey?.invalidate());
-    const panes={responses:responseView(data.feedback,id,new Map(modules.map(m=>[m.id,m]))),participants:participantView(data,id,version,participantNotice,refreshParticipants,paneClosed,paneSupporters),...(survey?{finalSurvey:survey.element}:{}),courseCertificates:certificates.element,courseSetup:setupView(course,modules,id,updateCourse,perkCourse===true)};
+    const panes={responses:responseView(data.feedback,id,new Map(modules.map(m=>[m.id,m]))),participants:participantView(data,id,version,participantNotice,refreshParticipants,paneClosed,paneSupporters,training),...(survey?{finalSurvey:survey.element}:{}),courseCertificates:certificates.element,courseSetup:setupView(course,modules,id,updateCourse,perkCourse===true,onTrainingConfigured)};
     const buttons={};
     function activate(key){
       for(const name of Object.keys(panes)){

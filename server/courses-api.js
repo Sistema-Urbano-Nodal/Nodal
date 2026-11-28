@@ -80,7 +80,7 @@ export async function courseSummary(store,courseId) {
 }
 
 // finalSurvey and clock exist for tests: the survey's course and deadline are fixed in production.
-export function createCourseApi({store,userRepository,sameOrigin,send=respond,reportAnswer=async()=>false,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,downloads=createByteBudget(downloadLimits),log=console.error,finalSurvey=FINAL_SURVEY,clock=Date.now,renderCertificate,perks=createCoursePerks()}={}) {
+export function createCourseApi({store,userRepository,sameOrigin,trainingStore=store?.createTrainingStore?.() ?? null,trainingClock=Date.now,send=respond,reportAnswer=async()=>false,rateLimit=()=>true,downloadLimits=DOWNLOAD_LIMITS,downloads=createByteBudget(downloadLimits),log=console.error,finalSurvey=FINAL_SURVEY,clock=Date.now,renderCertificate,perks=createCoursePerks()}={}) {
   const participants=createCourseParticipants({store,userRepository});
   const findOne=async(name,filters)=>(await store.find(name,filters,{limit:1}))[0]??null;
   const all=(name,filters={},max=Infinity)=>allRows(store,name,filters,max);
@@ -88,12 +88,18 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     identifier(id);
     // Independent reads share only this request; always validate access before
     // returning either content or the current viewer's private intake.
-    const [course,enrollment,intake]=await Promise.all([
+    const [course,seat,intake,training]=await Promise.all([
       findOne('courses',{id}),findOne('enrollments',{courseId:id,userId:user.id}),findOne('intakes',{courseId:id,userId:user.id}),
+      trainingStore?.getOffering(id),
     ]);
     if(!course || (!isStaff(user) && course.status!=='published'))fail('course unavailable',404);
+    let enrollment=seat;
+    if(training && seat && !isStaff(user)) {
+      const state = await trainingStore.getState(user.id,id,new Date(trainingClock()).toISOString());
+      if (!state.canAccess) enrollment = null;
+    }
     if(content && !isStaff(user) && (!enrollment || !intake))fail('enroll and complete the intake before opening modules',403);
-    return {course,enrollment:enrollment?{...enrollment,intakeCompleted:Boolean(intake)}:null,intake:intake?.answers??null};
+    return {course,enrollment:enrollment?{...enrollment,intakeCompleted:Boolean(intake)}:null,intake:intake?.answers??null,...(training?{trainingConfigured:true}:{})};
   }
   /* How a member who is not enrolled may join the closed perk course (server/course-perks.js): 'fiiu' with an eligible
      FIIU Fest 11 registration, else 'supporters'; null for staff, an open course and any other course. A failed
@@ -284,13 +290,18 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     if(path===root) {
       if(req.method==='GET'&&adminPath) { send(res,200,{courses:await store.find('courses',{},{limit:100}),isAdmin:isStaff(user)});return true; }
       if(req.method==='GET') {
-        // One read of the viewer's enrolments marks each card; only the closed perk course can add a festival read.
-        const [courses,enrollments]=await Promise.all([store.find('courses',{status:'published'},{limit:100}),all('enrollments',{userId:user.id})]);
+        const [courses,enrollments,training]=await Promise.all([
+          store.find('courses',{status:'published'},{limit:100}),all('enrollments',{userId:user.id}),
+          trainingStore?.listState(user.id,new Date(trainingClock()).toISOString()),
+        ]);
         const enrolled=new Set(enrollments.map(enrollment=>enrollment.courseId));
+        const offerings=new Map((training?.offerings || []).map(state=>[state.offering.courseId,state]));
         send(res,200,{courses:await Promise.all(courses.map(async course=>{
+          const state=offerings.get(course.id);
+          if(state)return {...course,trainingConfigured:true,enrolled:state.canAccess};
           const join=enrolled.has(course.id)?null:await joinFor(course,user);
           return {...course,enrolled:enrolled.has(course.id),...(join?{join}:{})};
-        })),isAdmin:isStaff(user)});return true;
+        })),isAdmin:isStaff(user),...(training && !isStaff(user)?{training}:{})});return true;
       }
       if(adminPath&&req.method==='POST') {
         const course=await store.insert('courses',{id:newId(),...normalizeCourse(await bodyJson(req)),version:1,createdAt:now(),updatedAt:now()});
@@ -312,7 +323,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
       // revalidate with its id: a 304 then costs no Storage read.
       const etag=`"${attachment.id.toLowerCase()}"`;
       // Founder seats can be withdrawn between opens. Revalidate their files against the current enrollment.
-      const cacheControl=perks.applies(attachment.courseId)?'private, no-cache':'private, max-age=86400, immutable';
+      const cacheControl=perks.applies(attachment.courseId)||fileAccess.trainingConfigured?'private, no-cache':'private, max-age=86400, immutable';
       const caching={'Cache-Control':cacheControl,ETag:etag,Vary:'Cookie'};
       if(matchesEtag(req.headers['if-none-match'],etag)){send(res,304,'',caching);return true;}
       // The teaching team opens every participant's files, often in one sitting (a class's assignments easily pass
@@ -371,6 +382,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
       send(res,200,{result:'withdrawn'});return true;
     }
     if(adminPath&&['/participants','/invitations'].includes(suffix)&&req.method==='POST') {
+      if(access.trainingConfigured){send(res,409,{code:'training_reservation_required'});return true;}
       const input=await bodyJson(req);
       try {
         // The perk course is closed to the public, but the team adds each Supporter who paid on Mercado Pago (docs/supporter-payments.md).
@@ -391,7 +403,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     // The final survey and certificates of one course (server/course-final-survey.js); false for anything else.
     if(await survey.handle({req,res,url,user,access,courseId,suffix,adminPath}))return true;
     if(!suffix&&req.method==='GET') {
-      let [modules,finalSurvey,certificate,join]=await Promise.all([store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:101,order:['position','sessionDate','id']}),survey.snapshot({courseId,user,access}),survey.ordinaryCertificate({courseId,user,access}),access.enrollment?null:joinFor(access.course,user)]);
+      let [modules,finalSurvey,certificate,join]=await Promise.all([store.find('modules',{courseId,...(isStaff(user)?{}:{status:'published'})},{limit:101,order:['position','sessionDate','id']}),survey.snapshot({courseId,user,access}),survey.ordinaryCertificate({courseId,user,access}),access.enrollment||access.trainingConfigured?null:joinFor(access.course,user)]);
       if(!isStaff(user)&&(!access.enrollment||!access.intake)) modules=modules.map(({id,kind,title,position,sessionDate,status,translations={}})=>({
         id,kind,title,position,sessionDate,status,
         // Preview only localized titles; gated teaching content stays private.
@@ -411,6 +423,7 @@ export function createCourseApi({store,userRepository,sameOrigin,send=respond,re
     }
     if(!adminPath&&suffix==='/enroll'&&req.method==='POST') {
       if(access.enrollment){send(res,200,{enrollment:access.enrollment});return true;}
+      if(access.trainingConfigured){send(res,403,{code:'training_reservation_required'});return true;}
       // The closed perk course still admits an eligible FIIU Fest 11 registrant; a failed festival read is an error to
       // retry, never a refusal.
       if(!access.course.enrollmentOpen&&!(perks.applies(courseId)&&await perks.fiiuEligible(user))){send(res,403,{error:'enrollment is closed',code:'enrollment_closed'});return true;}

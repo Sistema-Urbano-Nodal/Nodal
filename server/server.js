@@ -14,6 +14,7 @@ import { createCache, MemoryCache } from './cache.js';
 import { createNetworkSnapshots } from './network-cache.js';
 import { createCourseStore } from './courses-repository.js';
 import { createCourseApi, createByteBudget, DOWNLOAD_LIMITS } from './courses-api.js';
+import {createTrainingApi, isTrainingRoute} from './training-api.js';
 import { createCoursePerks } from './course-perks.js';
 import { createFiiuStore } from './fiiu-repository.js';
 import { createFiiuApi, exportFiiuData } from './fiiu-api.js';
@@ -39,7 +40,7 @@ import { preparePageHtml } from './page-shell.js';
 import {createLocationProvider,validatePosition,validateCityId} from './location.js';
 import { createCourseParticipants } from './course-participants.js';
 import { bucFeedFromEnv, bucReadings, parseReadingsQuery, READINGS_ERROR } from './buc.js';
-import { exportCourseData, assertCourseDataDeletable, deleteCourseData } from './courses-privacy.js';
+import { exportCourseData, assertCourseDataDeletable, prepareCourseAccountDeletion } from './courses-privacy.js';
 import {
   paymentsConfig, createCheckoutSession, verifyStripeWebhook, CYCLES,
 } from './payments.js';
@@ -78,7 +79,7 @@ const MAX_BODY = 32 * 1024;
 // /api/fiiu/checkin still requires a session.
 const PRIVATE_PAGES = new Set(['/fiiu-admin.html', '/fiiu-qr.html', '/dashboard.html', '/messages.html', '/profile.html', '/payments.html', '/admin.html', '/courses.html', '/course.html', '/teaching.html', '/admin-home.html']);
 const STATIC_PAGES = new Set(['fiiu.html', 'fiiu-admin.html', 'fiiu-qr.html', 'fiiu-checkin.html', 'fiiu-talk.html', 'fiiu-session.html', 'organisers-only.html', 'community.html', 'resources.html', 'knowledge.html', 'index.html', 'login.html', 'reset-password.html', 'accept-invitation.html', 'dashboard.html', 'messages.html', 'profile.html', 'payments.html', 'opportunities.html', 'privacy.html', 'terminos-fundadores.html', 'fundadores.html', 'admin.html', 'courses.html', 'course.html', 'teaching.html', 'admin-home.html']);
-const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'overview-return.js', 'buc.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'messages.js', 'messages-i18n.js', 'workspace-notifications.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js', 'membership-terms.js', 'fundadores.js', 'node-request.js', 'visit.js', 'admin-nav.js', 'admin-home.js']);
+const STATIC_SCRIPTS = new Set(['fiiu-ui.js', 'fiiu-live.js', 'fiiu.js', 'fiiu-admin.js', 'fiiu-hubs.js', 'fiiu-checkin.js', 'fiiu-qr.js', 'fiiu-talk.js', 'news-feed.js', 'overview-return.js', 'buc.js', 'admin.js', 'app.js', 'auth.js', 'password-recovery.js', 'recovery-i18n.js', 'accept-invitation.js', 'invitation-i18n.js', 'catalog.js', 'coastline.js', 'dashboard.js', 'messages.js', 'messages-i18n.js', 'workspace-notifications.js', 'globe.js', 'globe-geo.js', 'i18n.js', 'i18n-dashboard.js', 'locale.js', 'nav.js', 'payments.js', 'profile.js', 'recs.js', 'script.js', 'hero-network.js', 'courses.js', 'training.js', 'training-admin.js', 'teaching.js', 'pilot.js', 'pilot-i18n.js', 'location-check.js', 'location-i18n.js', 'privacy.js', 'membership-terms.js', 'fundadores.js', 'node-request.js', 'visit.js', 'admin-nav.js', 'admin-home.js']);
 /* /admin is the short address of the administrators' front door, the metrics home. */
 const ADMIN_ALIASES = new Set(['/admin']);
 /* The check-in screen shows <host>/checkin for phones that cannot scan. Typed by hand it may come in any case, without
@@ -88,8 +89,8 @@ const CHECKIN_ALIASES = new Set(['/checkin', '/fiiu-checkin', '/fiiu-checkin.htm
    projected (fiiu-talk.html?a=, ?q=, &present=1) goes there with its query, in any of the spellings above; so do loose
    spellings of the session page itself, whose address the projector shows for typing. */
 const SESSION_ALIASES = new Set(['/fiiu-talk', '/fiiu-talk.htm', '/fiiu-talk.html', '/fiiu-session', '/fiiu-session.htm', '/fiiu-session.html']);
-const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'messages.css', 'workspace-notifications.css', 'catalog.css', 'admin.css', 'courses.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css', 'admin-home.css']);
-const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp']);
+const STATIC_STYLES = new Set(['fiiu.css', 'fiiu-talk.css', 'auth.css', 'styles.css', 'dashboard.css', 'messages.css', 'workspace-notifications.css', 'catalog.css', 'admin.css', 'courses.css', 'training-detail.css', 'recovery.css', 'fonts.css', 'locale.css', 'privacy.css', 'terms.css', 'fundadores.css', 'node-request.css', 'admin-nav.css', 'admin-home.css']);
+const STATIC_ASSETS = new Set(['latam-map.webp', 'nodal-community.webp', 'nodal-wordmark.webp', 'training-city.webp', 'training-city-684.webp']);
 const STATIC_FONTS = new Set(['montserrat-v31-latin-normal.woff2', 'montserrat-v31-latin-ext-normal.woff2', 'montserrat-v31-latin-italic.woff2', 'montserrat-v31-latin-ext-italic.woff2', 'OFL.txt']);
 // Published email artwork is loaded by mail clients from other origins.
 const STATIC_EMAIL_ASSETS = new Set(['nodal-lockup.png', 'nodal-lockup-dark.png', 'nodal-network-map-v1.png']);
@@ -1100,6 +1101,7 @@ export function createApp({
      reports nothing, so a Vercel build running the suite with the production environment sends nothing. */
   errorReport = { enabled: false, report: async () => false },
   courseStore = repository?.database ? createCourseStore({db:repository.database}) : repository?.kind === 'supabase' ? createCourseStore() : null,
+  trainingStore = courseStore?.createTrainingStore?.() ?? null,
   fiiuStore = repository?.database ? createFiiuStore({db:repository.database}) : repository?.kind === 'supabase' ? createFiiuStore() : null,
   /* {secret, now} for the rotating FIIU check-in codes: FIIU_CHECKIN_SECRET, else derived from the Supabase server
      key, else (SQLite) random per process; the clock honours FIIU_CHECKIN_NOW only on a local SQLite server. */
@@ -1424,7 +1426,10 @@ export function createApp({
     report:error=>reportAnswer({method:'GET',url:'/api/admin/metrics'},503,error),
     ...metricsOptions,
   }):null;
-  const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,downloads,reportAnswer,perks:createCoursePerks({fiiuStore}),
+  const trainingApi=trainingStore?createTrainingApi({store:trainingStore,courses:courseStore,users:repository,sameOrigin,send,now,
+    allowed:(req,res,user)=>throttle(req.method==='GET'?courseReadLimiter:courseWriteLimiter,res,req,user,'training'),
+  }):null;
+  const courseApi=courseStore?createCourseApi({store:courseStore,userRepository:repository,sameOrigin,send,downloads,reportAnswer,trainingStore,trainingClock:now,perks:createCoursePerks({fiiuStore}),
     // Only an upload spends the upload budget; staff list the file library after every upload, use and delete.
     rateLimit:(req,res,user,pathname)=>throttle(pathname.endsWith('/invitations')?courseInvitationLimiter:req.method==='POST'&&pathname.endsWith('/attachments')?courseUploadLimiter:['GET','HEAD'].includes(req.method)?courseReadLimiter:courseWriteLimiter,res,req,user,'course'),
   }):null;
@@ -1492,7 +1497,7 @@ export function createApp({
         || /^\/api\/(?:admin\/)?news(?:\/|$)/.test(pathname)
         || /^\/api\/(?:courses(?:\/|$)|admin\/courses(?:\/|$)|course-attachments\/|feedback(?:\/|$)|admin\/feedback(?:\/|$))/.test(pathname)
         || pathname === '/api/me/photo' || PHOTO_ROUTE.test(pathname) || COVER_ROUTE.test(pathname)
-        || isWorkspaceRoute(pathname) || ID_ONLY_API.test(pathname) || (req.method === 'DELETE' && pathname === '/api/me');
+        || isTrainingRoute(pathname) || isWorkspaceRoute(pathname) || ID_ONLY_API.test(pathname) || (req.method === 'DELETE' && pathname === '/api/me');
       const optionalSession = (req.method === 'GET' || req.method === 'HEAD')
         && (isApiRequest ? OPTIONAL_SESSION_API.test(pathname) || COVER_ROUTE.test(pathname) : canonical === '/login.html');
       let session = { user: null, cookies: [] };
@@ -1580,6 +1585,7 @@ export function createApp({
       if (sessionUser && req.method === 'GET' && LOGGED_DOWNLOADS.has(pathname)) {
         res.on('finish', () => { if (res.statusCode === 200) console.info(`download ${pathname} by ${sessionUser.id} at ${new Date().toISOString()}`); });
       }
+      if(trainingApi && await trainingApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       if(courseApi && await courseApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
       // Before the FIIU API, which would ask the sessionless pulse to sign in; other paths it does not own fall through.
       if(talkApi && await talkApi({req,res,url,user:sessionUser?repository.toApiUser(sessionUser):null}))return;
@@ -2119,6 +2125,7 @@ export function createApp({
         }
         if(newsStore?.alerts)data.newsEmail=await newsStore.alerts.exportFor(sessionUser.id);
         if(courseStore)data.coursePilot=await exportCourseData(courseStore,sessionUser.id);
+        if(trainingStore)data.training2027=await trainingStore.exportMember(sessionUser.id,new Date(now()).toISOString());
         if(fiiuStore)data.fiiu=await exportFiiuData(fiiuStore,sessionUser.id);
         if (workspaceStore?.emailAlerts) data.directMessageEmail = await workspaceStore.emailAlerts.exportFor(sessionUser.id);
         if (workspaceStore) data.memberWorkspace = await workspaceStore.execute(sessionUser.id, 'export', {});
@@ -2154,7 +2161,7 @@ export function createApp({
           if(courseStore)await assertCourseDataDeletable(courseStore,sessionUser.id);
           // The person's answers and name leave this instance's live window at once, as a withdrawal does.
           if(talkStore){await deleteTalkData(talkStore,sessionUser.id,{now:talkClock()});fiiuLive?.clear();}
-          if(courseStore)await deleteCourseData(courseStore,sessionUser.id);
+          if(courseStore)await prepareCourseAccountDeletion(courseStore,sessionUser.id);
         } catch (err) {
           // Only the checks' own 409s (fiiu-talk-api.js, courses-privacy.js); anything else is the global handler's.
           const code = err?.status === 409 && err.expose !== false && DELETION_REFUSALS.find(([wording]) => wording.test(err.message))?.[1];

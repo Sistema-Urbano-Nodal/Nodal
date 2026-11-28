@@ -38,7 +38,7 @@
       ]
     },
     {
-      "source": "/(fiiu|fiiu-ui|fiiu-live|fiiu-admin|fiiu-hubs|fiiu-checkin|fiiu-qr|fiiu-talk|news-feed|buc|admin|app|auth|password-recovery|recovery-i18n|accept-invitation|invitation-i18n|catalog|courses|coastline|dashboard|overview-return|workspace-notifications|messages|messages-i18n|globe|globe-geo|i18n|i18n-dashboard|locale|location-i18n|location-check|nav|payments|pilot|pilot-i18n|profile|recs|script|teaching|privacy|membership-terms|fundadores|hero-network|node-request|visit|admin-nav|admin-home).js",
+      "source": "/(fiiu|fiiu-ui|fiiu-live|fiiu-admin|fiiu-hubs|fiiu-checkin|fiiu-qr|fiiu-talk|news-feed|buc|admin|app|auth|password-recovery|recovery-i18n|accept-invitation|invitation-i18n|catalog|courses|coastline|dashboard|overview-return|workspace-notifications|messages|messages-i18n|globe|globe-geo|i18n|i18n-dashboard|locale|location-i18n|location-check|nav|payments|pilot|pilot-i18n|profile|recs|script|teaching|training|training-admin|privacy|membership-terms|fundadores|hero-network|node-request|visit|admin-nav|admin-home).js",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=3600, stale-while-revalidate=86400" },
         { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" },
@@ -46,7 +46,7 @@
       ]
     },
     {
-      "source": "/(fiiu|fiiu-talk|styles|dashboard|workspace-notifications|messages|catalog|courses|admin|recovery|auth|fonts|locale|privacy|terms|fundadores|node-request|admin-nav|admin-home).css",
+      "source": "/(fiiu|fiiu-talk|styles|dashboard|workspace-notifications|messages|catalog|courses|training-detail|admin|recovery|auth|fonts|locale|privacy|terms|fundadores|node-request|admin-nav|admin-home).css",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=3600, stale-while-revalidate=86400" },
         { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" },

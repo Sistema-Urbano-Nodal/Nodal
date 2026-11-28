@@ -807,3 +807,200 @@ test('a contribution by a Founder member shows the badge after the author, befor
  assert.ok(h.requests.some(r=>r.method==='PATCH'&&r.path.endsWith('/posts/p2')));
  assert.equal(badge('p2').hidden,false);assert.equal(card('p2').children.find(n=>n.className==='pilot-tag').hidden,false,'the staff tag stays');
 });
+
+function trainingState(overrides={}) {
+  return {year:2027,term:{status:'active',active:true,phase:'early'},used:{course:0,masterclass:1},
+    offering:{courseId:'c1',kind:'course',regularCents:10000,promoCents:7000,includedEligible:true,open:true,available:2},
+    quoteCents:7000,canInclude:true,canReserveAdditional:true,enrolled:false,canAccess:false,reservation:null,...overrides};
+}
+const trainingButton=(h,label)=>descendants(h.body).find(node=>node.tagName==='button'&&node.textContent===label);
+const trainingDetail=(state,act)=>{
+  const h=harness((path,opts)=>{
+    if(path==='/api/courses/c1')return {course,modules:[],enrollment:state.enrolled&&state.canAccess?{id:'e1'}:null,intake:null,isAdmin:false,trainingConfigured:true};
+    if(path==='/api/training/c1')return state;
+    if(path.startsWith('/api/training/c1/reservations'))return act(path,opts);
+    return {status:404};
+  },{page:'course',search:'?id=c1'});
+  h.run('training');h.run('courses');return h;
+};
+
+test('member training catalog shows separate balances and course types in all three languages',async()=>{
+  const s=trainingState(),training={year:2027,term:s.term,used:s.used,offerings:[s]};
+  const h=harness(path=>path==='/api/courses'?{courses:[{...course,trainingConfigured:true}],isAdmin:false,training}:assert.fail('unexpected catalog request'));
+  h.run('training');h.run('courses');await flush();
+  for(const [lang,first,second,category] of [['en','course available','masterclasses available','Included place'],['es','curso disponible','masterclasses disponibles','Cupo incluido'],['pt','curso disponível','masterclasses disponíveis','Vaga incluída']]){
+    h.lang(lang);
+    const balances=descendants(h.body).filter(n=>n.tagName==='li').map(content);
+    assert.ok(balances.some(line=>line.includes('1 '+first)));
+    assert.ok(balances.some(line=>line.includes('0 '+second)));
+    assert.ok(content(h.body).includes(category));
+  }
+  assert.equal(h.requests.filter(r=>r.path==='/api/training').length,0);
+  assert.match(content(h.body),/Cursos e masterclasses/);
+  const activity=descendants(h.body).find(n=>n.href==='course.html?id=c1');
+  assert.equal(activity.getAttribute('aria-labelledby'),descendants(activity).find(n=>n.tagName==='h3').id);
+});
+
+test('new member catalog preserves legacy course links and enrollment status before any 2027 offerings exist',async()=>{
+  const training={term:{active:false,status:'inactive',phase:'early'},used:{course:0,masterclass:0},offerings:[]};
+  const courses=[{...course,enrolled:true},{...course,id:'closed',enrollmentOpen:false}];
+  const h=harness(path=>path==='/api/courses'?{courses,isAdmin:false,training}:assert.fail(path));
+  h.run('training');h.run('courses');await flush();
+  assert.ok(h.body.querySelector('.training-catalog'));
+  assert.equal(h.ids.teachingLink.hidden,true);
+  assert.equal(h.ctx.document.getElementById('agenda-title').textContent,'Schedule 2026');
+  const rows=h.body.querySelectorAll('.training-agenda-row');
+  assert.deepEqual(rows.map(row=>row.children[0].href),['course.html?id=c1','course.html?id=closed']);
+  assert.match(content(rows[0]),/Enrolled/);
+  assert.match(content(rows[1]),/Enrollment closed/);
+  assert.doesNotMatch(content(h.body),/Founder|2027|No activities/);
+  assert.deepEqual(h.requests.map(r=>r.path),['/api/courses']);
+});
+
+test('empty and mixed-year catalogs describe only the activities and benefits actually available',async()=>{
+  const training={term:{active:true,status:'active',phase:'early'},used:{course:0,masterclass:0},offerings:[]};
+  const inspect=async courses=>{
+    const h=harness(path=>path==='/api/courses'?{courses,isAdmin:false,training}:assert.fail(path));
+    h.run('training');h.run('courses');await flush();return h;
+  };
+  const empty=await inspect([]);
+  assert.match(content(empty.body),/No activities have been published/);
+  assert.equal(empty.ctx.document.getElementById('agenda-title').textContent,'Schedule');
+  const mixed=await inspect([course,{...course,id:'new',startsOn:'2027-03-04',endsOn:'2027-03-04'}]);
+  assert.equal(mixed.ctx.document.getElementById('agenda-title').textContent,'Schedule');
+  assert.deepEqual(mixed.body.querySelectorAll('.training-year').map(n=>n.textContent),['2026','2027']);
+  assert.match(content(mixed.body),/No published activities currently offer the 2027 Founder benefit/);
+  assert.equal(mixed.body.querySelector('.training-included'),null);
+});
+
+test('training agenda orders dates, filters without a new request and keeps the choice when switching language',async()=>{
+  const s=trainingState();
+  const april={...s,canInclude:false,offering:{...s.offering,courseId:'c2',kind:'masterclass'}};
+  const one={...course,trainingConfigured:true,startsOn:'2027-03-04',endsOn:'2027-03-04'};
+  const two={...one,id:'c2',startsOn:'2027-04-08',endsOn:'2027-04-09'};
+  const h=harness(path=>path==='/api/courses'?{courses:[two,one],isAdmin:false,training:{term:s.term,used:s.used,offerings:[april,s]}}:assert.fail(path));
+  h.run('training');h.run('courses');await flush();
+  const rows=h.body.querySelectorAll('.training-agenda-row');
+  assert.deepEqual(rows.map(row=>row.children[0].href),['course.html?id=c1','course.html?id=c2']);
+  assert.equal(rows[0].querySelectorAll('.training-end').length,0);
+  assert.match(content(rows[1]),/Through/);
+  const filters=h.body.querySelectorAll('.training-filters')[0].children;
+  filters[2].listeners.click();
+  assert.deepEqual(rows.map(row=>row.hidden),[true,false]);
+  h.lang('pt');
+  assert.equal(filters[2].getAttribute('aria-pressed'),'true');
+  filters[0].listeners.click();
+  assert.deepEqual(rows.map(row=>row.hidden),[false,false]);
+  assert.deepEqual(h.requests.map(r=>r.path),['/api/courses']);
+});
+
+test('an included course confirms once, opens the normal course intake and updates the remaining balance',async()=>{
+  const s=trainingState();let finish;
+  const h=trainingDetail(s,()=>new Promise(resolve=>{finish=resolve;}));await flush();
+  assert.equal(trainingButton(h,'Enroll'),undefined);
+  await trainingButton(h,'Use an included place').listeners.click();
+  assert.equal(h.requests.filter(r=>r.method==='POST').length,0);
+  const confirm=trainingButton(h,'Confirm');const one=confirm.listeners.click(),two=confirm.listeners.click();
+  assert.equal(confirm.disabled,true);assert.deepEqual(h.requests.filter(r=>r.method==='POST').map(r=>r.body),[{mode:'included'}]);
+  Object.assign(s,{enrolled:true,canAccess:true,canInclude:false,canReserveAdditional:false,used:{course:1,masterclass:1},reservation:{id:'r1',mode:'included',status:'enrolled',priceCents:0}});
+  finish(s);await Promise.all([one,two]);await flush();
+  assert.ok(descendants(h.body).some(n=>n.tagName==='form'),'normal intake opens');
+  assert.equal(trainingButton(h,'Use an included place'),undefined);
+  assert.equal(trainingButton(h,'Cancel reservation'),undefined);
+});
+
+test('additional reservations confirm the displayed quote, refresh on a stale price, and cancel the identified pending seat',async()=>{
+  const s=trainingState({canInclude:false});let tries=0;
+  const h=trainingDetail(s,(path,opts)=>{
+    if(opts.method==='DELETE'){assert.ok(path.endsWith('/r2'));s.reservation=null;s.canReserveAdditional=true;return s;}
+    if(!tries++){s.quoteCents=6000;s.offering.promoCents=6000;return {status:409,data:{code:'training_price_changed'}};}
+    s.reservation={id:'r2',mode:'additional',status:'pending',priceCents:6000};s.canReserveAdditional=false;return s;
+  });await flush();
+  for(const expected of [7000,6000]){
+    await trainingButton(h,'Reserve an additional place').listeners.click();
+    assert.match(content(h.body),new RegExp(String(expected/100)+'\\.00'));
+    await trainingButton(h,'Confirm').listeners.click();await flush();
+    assert.equal(h.requests.filter(r=>r.method==='POST').at(-1).body.expectedPriceCents,expected);
+  }
+  assert.match(content(h.body),/Reservation pending payment confirmation/);assert.match(content(h.body),/Reserved price/);
+  assert.equal(trainingButton(h,'Reserve an additional place'),undefined);
+  assert.equal(h.requests.some(r=>/checkout|billing/.test(r.path)),false);
+  await trainingButton(h,'Cancel reservation').listeners.click();await trainingButton(h,'Go back').listeners.click();
+  assert.equal(h.requests.some(r=>r.method==='DELETE'),false);
+  await trainingButton(h,'Cancel reservation').listeners.click();await trainingButton(h,'Confirm').listeners.click();
+  assert.deepEqual(h.requests.filter(r=>r.method==='DELETE').map(r=>r.path),['/api/training/c1/reservations/r2']);
+  assert.match(content(h.body),/Reservation cancelled/);
+});
+
+test('a closed or full configured activity shows no enrollment bypass; failed benefit reads offer retry',async()=>{
+  for(const [open,available,expected] of [[false,2,'Reservations closed'],[true,0,'Full']]){
+    const s=trainingState({canInclude:false,canReserveAdditional:false});Object.assign(s.offering,{open,available});
+    const h=trainingDetail(s,()=>assert.fail('unavailable activity'));await flush();
+    assert.ok(content(h.body).includes(expected));
+    assert.equal(descendants(h.body).some(n=>n.dataset.pilotText==='enroll'),false);
+    assert.equal(trainingButton(h,'Use an included place'),undefined);
+    assert.equal(trainingButton(h,'Reserve an additional place'),undefined);
+  }
+  let failed=true;const h=harness(path=>path==='/api/courses/c1'?{course,modules:[],enrollment:null,trainingConfigured:true,isAdmin:false}:failed?{status:503}:trainingState(),{page:'course',search:'?id=c1'});
+  h.run('training');h.run('courses');await flush();
+  assert.match(content(h.body),/Training benefits could not be loaded/);assert.equal(descendants(h.body).some(n=>n.dataset.pilotText==='enroll'),false);
+  failed=false;await trainingButton(h,'Try again').listeners.click();await flush();assert.ok(trainingButton(h,'Use an included place'));
+});
+
+test('community members see a public reservation price; a suspended included reservation does not open the classroom',async()=>{
+  const community=trainingState({term:{status:'inactive',active:false,phase:'early'},canInclude:false});
+  const h=trainingDetail(community,()=>assert.fail('no booking expected'));await flush();
+  assert.ok(trainingButton(h,'Reserve a place'));assert.equal(trainingButton(h,'Use an included place'),undefined);
+  assert.match(content(h.body),/Your price/);assert.match(content(h.body),/Promotional price/);assert.doesNotMatch(content(h.body),/Included courses remaining|20%/);
+  const suspended=trainingState({term:{status:'suspended',active:false,phase:'annual'},enrolled:true,canAccess:false,canInclude:false,canReserveAdditional:false,reservation:{id:'r3',mode:'included',status:'enrolled',priceCents:0}});
+  const held=trainingDetail(suspended,()=>assert.fail('no booking expected'));await flush();
+  assert.match(content(held.body),/Access to this included activity is paused/);
+  assert.equal(descendants(held.body).some(n=>n.tagName==='form'),false);
+});
+
+test('an unreadable reservation reply recovers the saved pending reservation without repeating the write',async()=>{
+  const s=trainingState();const h=trainingDetail(s,()=>{
+    s.reservation={id:'r4',status:'pending',mode:'additional',priceCents:7000};s.canInclude=false;s.canReserveAdditional=false;
+    throw new Error('reply lost after commit');
+  });await flush();
+  await trainingButton(h,'Reserve an additional place').listeners.click();await trainingButton(h,'Confirm').listeners.click();await flush();
+  assert.match(content(h.body),/Reservation pending payment confirmation/);
+  assert.doesNotMatch(content(h.body),/could not confirm the result/);
+  assert.equal(h.requests.filter(r=>r.method==='POST').length,1);
+  assert.ok(trainingButton(h,'Cancel reservation'));
+});
+
+test('all three locales distinguish the Founder discount from a better promotion, and keep the two balances separate',async()=>{
+  for(const [promo,quote,english,spanish,portuguese] of [
+    [null,8000,'20% Founder discount','20% de descuento Fundador','20% de desconto Fundador'],
+    [9000,8000,'20% Founder discount','20% de descuento Fundador','20% de desconto Fundador'],
+    [5000,5000,'Promotion beats the 20%','La promoción supera el descuento','A promoção supera o desconto'],
+  ]){
+    const s=trainingState({quoteCents:quote,used:{course:1,masterclass:0}});
+    Object.assign(s.offering,{promoCents:promo,kind:'masterclass'});
+    const h=trainingDetail(s,()=>assert.fail('no write'));await flush();
+    for(const [lang,expected] of [['en',english],['es',spanish],['pt',portuguese]]){
+      h.lang(lang);assert.ok(content(h.body).includes(expected));
+    }
+    await trainingButton(h,'Usar uma vaga incluída').listeners.click();
+    assert.match(content(h.body),/sua masterclass incluída/);
+  }
+});
+
+test('free training enrolls at zero, preserves the included balance and never shows pending payment copy',async()=>{
+  for(const member of [false,true]){
+    const s=trainingState({term:{status:member?'active':'inactive',active:member,phase:'early'},canInclude:false,quoteCents:0});
+    s.offering.promoCents=0;
+    const h=trainingDetail(s,()=>{
+      Object.assign(s,{enrolled:true,canAccess:true,canReserveAdditional:false,reservation:{id:'r0',mode:'additional',status:'enrolled',priceCents:0}});
+      return s;
+    });await flush();
+    assert.equal(trainingButton(h,'Use an included place'),undefined);
+    await trainingButton(h,'Enroll for free').listeners.click();
+    assert.match(content(h.body),/Confirm your free enrollment/);
+    assert.doesNotMatch(content(h.body),/team will confirm payment|pending payment/);
+    await trainingButton(h,'Confirm').listeners.click();await flush();
+    assert.deepEqual(h.requests.filter(r=>r.method==='POST').map(r=>r.body),[{mode:'additional',expectedPriceCents:0}]);
+    assert.ok(descendants(h.body).some(n=>n.tagName==='form'));assert.doesNotMatch(content(h.body),/pending payment/);
+  }
+});
